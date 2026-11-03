@@ -2,6 +2,7 @@ package com.meinklicker.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
@@ -24,6 +25,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.io.File
 
 /** 核心宿主：托管所有悬浮窗，执行手势，把用户动作转给 RunController。 */
 class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Actions {
@@ -174,7 +176,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         runController.onTriggerTapped(
             x, y,
             beforeReplay = { triggerZone.awaitTouchReleased() },
-            onReplayed = { Log.i(TAG, "trigger replayed at ($x, $y) in ${SystemClock.uptimeMillis() - upAt} ms") },
+            onReplayed = { recordReplayLatency(x, y, SystemClock.uptimeMillis() - upAt) },
         )
     }
 
@@ -211,6 +213,17 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     private fun refreshControlBarVisibility() {
         if (container.controlBarEnabled.value && editor == null) controlBar.show() else controlBar.hide()
+    }
+
+    /**
+     * 补发延迟打点。部分 ROM（vivo）会屏蔽应用日志，所以同时追加到 files/latency.log，
+     * 可用 `adb shell run-as com.meinklicker cat files/latency.log` 查看；debug 包还在屏幕上提示。
+     */
+    private fun recordReplayLatency(x: Int, y: Int, ms: Long) {
+        val line = "${System.currentTimeMillis()} replay ($x, $y) ${ms}ms"
+        Log.i(TAG, line)
+        runCatching { File(filesDir, "latency.log").appendText(line + "\n") }
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) messages.show("补发延迟 $ms ms", 1200)
     }
 
     /** vivo 等 ROM 在通知权限关闭时会屏蔽 Toast，所以用悬浮窗提示。 */
