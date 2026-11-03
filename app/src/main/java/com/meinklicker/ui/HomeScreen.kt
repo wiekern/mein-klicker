@@ -161,7 +161,9 @@ private fun StatusCard() {
             }
             Text(
                 "ColorOS / OriginOS 会在清理后台时关闭无障碍服务：请允许自启动和后台运行，" +
-                    "并在最近任务中下拉锁定 MeinKlicker。",
+                    "并在最近任务中下拉锁定 MeinKlicker。\n" +
+                    "vivo：打开无障碍开关后请用 Home 手势（上滑）离开，不要按返回——" +
+                    "vivo 的服务详情页退出时会把服务关掉。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {

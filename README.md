@@ -55,6 +55,14 @@ adb logcat -s MeinKlicker                                # 查看日志
 3. **自启动 / 后台运行** → 去设置 → 允许 MeinKlicker 自启动、后台运行；
 4. 在最近任务里把 MeinKlicker 下拉**锁定**。
 
+**vivo / OriginOS 注意**：在无障碍服务详情页打开开关后，要用 **Home 手势（从底部上滑）** 离开，**不要按返回**。vivo 的详情页会显示错误的开关状态（服务已开启却显示关闭），按返回离开时会把服务关掉（在 vivo V2405A / Android 17 上确认）。也可以用电脑执行：
+
+```bash
+adb shell settings put secure enabled_accessibility_services com.meinklicker/com.meinklicker.service.ClickAccessibilityService
+```
+
+注意这条命令会覆盖已开启的其他无障碍服务列表。
+
 ColorOS / OriginOS 清理后台时可能关闭无障碍服务。如果悬浮栏消失，回主界面看服务状态，需要时重新开启。
 
 ## 使用
