@@ -77,6 +77,7 @@ class SchemeRepositoryTest {
         )
         val s = SchemeRepository(file()).get("x")!!
         assertEquals(LoopConfig(), s.loop)
+        assertEquals(DEFAULT_PRESS_MS, s.pressMs)
         assertNull(s.trigger)
     }
 }

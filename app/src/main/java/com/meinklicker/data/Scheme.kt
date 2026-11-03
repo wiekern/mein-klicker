@@ -13,6 +13,8 @@ data class Scheme(
     val trigger: TriggerConfig? = null,
     val steps: List<Step> = emptyList(),
     val loop: LoopConfig = LoopConfig(),
+    /** 每次点击的按压时长，步骤和触发补发共用。旧文件没有该字段时取默认值。 */
+    val pressMs: Long = DEFAULT_PRESS_MS,
     val updatedAt: Long,
 )
 
@@ -39,6 +41,10 @@ data class LoopConfig(
 
 const val DEFAULT_DELAY_MS = 100L
 const val MIN_DELAY_MS = 10L
+const val DEFAULT_PRESS_MS = 30L
+const val MIN_PRESS_MS = 10L
+/** 低于系统长按阈值（约 400 ms），避免被识别为长按。 */
+const val MAX_PRESS_MS = 300L
 
 /** schemes.json 的顶层结构，version 为以后的格式升级预留。 */
 @Serializable

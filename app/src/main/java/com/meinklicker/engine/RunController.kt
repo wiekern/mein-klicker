@@ -71,7 +71,7 @@ class RunController(
         }
         start(scheme, fromTrigger = true) {
             beforeReplay()
-            engine.replayTrigger(x, y, trigger, retryIf, onReplayed)
+            engine.replayTrigger(x, y, trigger, scheme.pressMs, retryIf = retryIf, onReplayed = onReplayed)
             engine.runLoop(scheme, progress(scheme, true))
         }
         return true

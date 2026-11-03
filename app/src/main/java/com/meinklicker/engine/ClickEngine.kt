@@ -1,5 +1,6 @@
 package com.meinklicker.engine
 
+import com.meinklicker.data.DEFAULT_PRESS_MS
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.TriggerConfig
 import kotlinx.coroutines.currentCoroutineContext
@@ -25,7 +26,7 @@ class ClickEngine(private val gestures: GestureDispatcher) {
                 // 等待时长从上一次手势完成时开始计时
                 delay(step.delayBeforeMs)
                 // 手势被取消时继续下一步，不中断整个方案
-                gestures.tap(step.x, step.y)
+                gestures.tap(step.x, step.y, scheme.pressMs)
             }
             round++
         }
@@ -39,13 +40,14 @@ class ClickEngine(private val gestures: GestureDispatcher) {
         x: Int,
         y: Int,
         trigger: TriggerConfig,
+        pressMs: Long = DEFAULT_PRESS_MS,
         retryIf: suspend () -> Boolean = { false },
         onReplayed: () -> Unit = {},
     ) {
-        gestures.tap(x, y)
+        gestures.tap(x, y, pressMs)
         var retries = 0
         while (retries < MAX_REPLAY_RETRIES && retryIf()) {
-            gestures.tap(x, y)
+            gestures.tap(x, y, pressMs)
             retries++
         }
         onReplayed()

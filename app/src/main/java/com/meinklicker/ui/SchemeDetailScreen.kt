@@ -1,6 +1,7 @@
 package com.meinklicker.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -29,8 +31,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.meinklicker.container
+import com.meinklicker.data.DEFAULT_PRESS_MS
 import com.meinklicker.data.LoopConfig
+import com.meinklicker.data.MAX_PRESS_MS
 import com.meinklicker.data.MIN_DELAY_MS
+import com.meinklicker.data.MIN_PRESS_MS
 import com.meinklicker.data.Scheme
 import kotlinx.coroutines.launch
 
@@ -44,18 +49,22 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var infinite by remember(scheme.id) { mutableStateOf(scheme.loop.infinite) }
     var count by remember(scheme.id) { mutableStateOf(if (scheme.loop.infinite) "1" else "${scheme.loop.count}") }
     var interval by remember(scheme.id) { mutableStateOf("${scheme.loop.intervalMs}") }
+    var press by remember(scheme.id) { mutableStateOf("${scheme.pressMs}") }
+    var showPressTips by remember { mutableStateOf(false) }
     var triggerDelay by remember(scheme.id, scheme.trigger) { mutableStateOf("${scheme.trigger?.delayAfterMs ?: ""}") }
     var triggerRadius by remember(scheme.id, scheme.trigger) { mutableStateOf("${scheme.trigger?.radiusDp ?: ""}") }
     val stepDelays = remember(scheme.id, scheme.steps) { mutableStateListOf(*scheme.steps.map { "${it.delayBeforeMs}" }.toTypedArray()) }
 
     val countValue = count.toIntOrNull()?.takeIf { it >= 1 }
     val intervalValue = interval.toLongOrNull()?.takeIf { it >= 0 }
+    val pressValue = press.toLongOrNull()?.takeIf { it in MIN_PRESS_MS..MAX_PRESS_MS }
     val triggerDelayValue = triggerDelay.toLongOrNull()?.takeIf { it >= 0 }
     val triggerRadiusValue = triggerRadius.toIntOrNull()?.takeIf { it in 10..200 }
     val stepDelayValues = stepDelays.map { it.toLongOrNull()?.takeIf { v -> v >= MIN_DELAY_MS } }
     val valid = name.isNotBlank() &&
         (infinite || countValue != null) &&
         intervalValue != null &&
+        pressValue != null &&
         (scheme.trigger == null || (triggerDelayValue != null && triggerRadiusValue != null)) &&
         stepDelayValues.all { it != null }
 
@@ -63,6 +72,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
         val updated = scheme.copy(
             name = name.trim(),
             loop = LoopConfig(count = if (infinite) 0 else countValue!!, intervalMs = intervalValue!!),
+            pressMs = pressValue!!,
             trigger = scheme.trigger?.copy(delayAfterMs = triggerDelayValue!!, radiusDp = triggerRadiusValue!!),
             steps = scheme.steps.mapIndexed { i, step -> step.copy(delayBeforeMs = stepDelayValues[i]!!) },
             updatedAt = System.currentTimeMillis(),
@@ -89,6 +99,15 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
                     value = name, onValueChange = { name = it }, label = { Text("名称") },
                     singleLine = true, isError = name.isBlank(), modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            item { SectionTitle("点击") }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        NumberField("按压时长 (ms)", press, pressValue == null, "$MIN_PRESS_MS–$MAX_PRESS_MS") { press = it }
+                    }
+                    TextButton(onClick = { showPressTips = true }) { Text("ⓘ") }
+                }
             }
             item { SectionTitle("循环") }
             item {
@@ -136,6 +155,26 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
             }
         }
     }
+
+    if (showPressTips) PressTipsDialog(onDismiss = { showPressTips = false })
+}
+
+@Composable
+private fun PressTipsDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("按压时长建议") },
+        text = {
+            Text(
+                "• 默认 $DEFAULT_PRESS_MS ms，适合大多数应用的按钮。\n" +
+                    "• 点了没反应（部分游戏、自绘界面）：调到 50–150 ms 再试。\n" +
+                    "• 不要超过约 $MAX_PRESS_MS ms，太长可能被识别为长按（系统长按约 400 ms）。\n" +
+                    "• 按压时长会计入每一步的耗时：实际间隔 ≈ 等待时长 + 按压时长。\n" +
+                    "• 所有步骤和触发点的补发都使用这个值。"
+            )
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },
+    )
 }
 
 @Composable

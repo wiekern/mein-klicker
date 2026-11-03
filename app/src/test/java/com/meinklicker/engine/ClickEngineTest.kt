@@ -90,6 +90,19 @@ class ClickEngineTest {
     }
 
     @Test
+    fun pressDurationAppliesToStepsAndReplay() = runTest {
+        val fake = FakeGestureDispatcher(testScheduler)
+        val s = scheme(LoopConfig(count = 2), Step(1, 1, 10), Step(2, 2, 10)).copy(pressMs = 120)
+        val engine = ClickEngine(fake)
+
+        engine.replayTrigger(9, 9, TriggerConfig(9, 9, delayAfterMs = 0), s.pressMs)
+        engine.runLoop(s)
+
+        assertEquals(5, fake.taps.size)
+        assertTrue(fake.taps.all { it.durationMs == 120L })
+    }
+
+    @Test
     fun replayTriggerTapsOnceThenWaits() = runTest {
         val fake = FakeGestureDispatcher(testScheduler)
         ClickEngine(fake).replayTrigger(500, 600, TriggerConfig(1, 1, delayAfterMs = 150))

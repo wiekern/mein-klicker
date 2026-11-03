@@ -40,6 +40,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meinklicker.AppContainer
 import com.meinklicker.container
+import com.meinklicker.data.DEFAULT_PRESS_MS
 import com.meinklicker.data.Scheme
 import com.meinklicker.engine.RunState
 import com.meinklicker.util.ScreenInfo
@@ -249,7 +250,8 @@ private fun Scheme.summary(): String {
     val loopText = if (loop.infinite) "无限循环" else "循环 ${loop.count} 次"
     val triggerText = if (trigger != null) "有触发点" else "无触发点"
     val time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(updatedAt))
-    return "${steps.size} 步 · $triggerText · $loopText · $time"
+    val pressText = if (pressMs != DEFAULT_PRESS_MS) " · 按压 $pressMs ms" else ""
+    return "${steps.size} 步 · $triggerText · $loopText$pressText · $time"
 }
 
 // ---- 方案操作：写文件在进程级作用域里做，离开页面也不会中断 ----
