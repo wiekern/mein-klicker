@@ -30,6 +30,8 @@ export JAVA_HOME="/path/to/Android Studio/jbr"
 
 首次编译会从 Google / Maven Central 下载依赖。
 
+发布签名（可选）：在 `local.properties` 加一行 `release.signing=/path/to/release.properties`，该文件写上 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`，然后 `./gradlew assembleRelease`。没配置时 release 包不签名。密钥和密码不要放进仓库。
+
 ## 安装到手机
 
 1. 手机：设置 → 关于手机 → 连续点"版本号"打开开发者选项；

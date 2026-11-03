@@ -1,8 +1,21 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
 }
+
+/**
+ * 发布签名：local.properties 里的 release.signing 指向仓库外的 properties 文件，
+ * 内含 storeFile / storePassword / keyAlias / keyPassword。没配置时 release 包不签名。
+ */
+fun loadProperties(file: File): Properties? =
+    file.takeIf { it.isFile }?.let { f -> Properties().apply { f.inputStream().use(::load) } }
+
+val releaseSigning: Properties? = loadProperties(rootProject.file("local.properties"))
+    ?.getProperty("release.signing")
+    ?.let { loadProperties(file(it)) }
 
 android {
     namespace = "com.meinklicker"
@@ -16,9 +29,21 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (releaseSigning != null) {
+            create("release") {
+                storeFile = file(releaseSigning.getProperty("storeFile"))
+                storePassword = releaseSigning.getProperty("storePassword")
+                keyAlias = releaseSigning.getProperty("keyAlias")
+                keyPassword = releaseSigning.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
