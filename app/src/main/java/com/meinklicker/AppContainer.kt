@@ -52,6 +52,14 @@ class AppContainer(context: Context) {
         prefs.edit().putBoolean(KEY_CONTROL_BAR, enabled).apply()
     }
 
+    private val _mainUiVisible = MutableStateFlow(false)
+    /** 主界面是否在前台；在前台时隐藏悬浮栏，避免挡住主界面的控件。 */
+    val mainUiVisible: StateFlow<Boolean> = _mainUiVisible.asStateFlow()
+
+    fun setMainUiVisible(visible: Boolean) {
+        _mainUiVisible.value = visible
+    }
+
     private val _tapEffectEnabled = MutableStateFlow(prefs.getBoolean(KEY_TAP_EFFECT, true))
     /** 运行时是否在点击位置显示扩散圆圈。 */
     val tapEffectEnabled: StateFlow<Boolean> = _tapEffectEnabled.asStateFlow()

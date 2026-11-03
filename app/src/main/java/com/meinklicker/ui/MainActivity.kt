@@ -14,6 +14,16 @@ import com.meinklicker.ui.theme.MeinKlickerTheme
 
 /** 两个页面用状态切换：方案列表 ↔ 方案设置。 */
 class MainActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        container.setMainUiVisible(true)
+    }
+
+    override fun onPause() {
+        container.setMainUiVisible(false)
+        super.onPause()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val repository = container.repository

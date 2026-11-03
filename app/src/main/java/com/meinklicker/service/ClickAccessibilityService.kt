@@ -70,7 +70,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         container.attachService(this)
 
         scope.launch {
-            container.controlBarEnabled.collect { refreshControlBarVisibility() }
+            combine(container.controlBarEnabled, container.mainUiVisible) { _, _ -> }
+                .collect { refreshControlBarVisibility() }
         }
         scope.launch {
             combine(runController.state, repository.schemes, container.selectedSchemeId) { state, list, id ->
@@ -247,7 +248,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     }
 
     private fun refreshControlBarVisibility() {
-        if (container.controlBarEnabled.value && editor == null) controlBar.show() else controlBar.hide()
+        val visible = container.controlBarEnabled.value && editor == null && !container.mainUiVisible.value
+        if (visible) controlBar.show() else controlBar.hide()
     }
 
     private val isDebuggable: Boolean

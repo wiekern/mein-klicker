@@ -176,7 +176,7 @@ private fun StatusCard() {
                             RunState.Idle -> "空闲"
                             is RunState.Armed -> "待命中"
                             is RunState.Running -> if (s.round > 0) "运行中 第${s.round}轮" else "运行中"
-                        },
+                        } + " · 在本页自动隐藏",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
