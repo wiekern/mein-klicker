@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 MeinKlicker is a personal-use Android auto-clicker (no ads, no network permission, not published; sideloaded via `adb install -r`). The Android project has **not been scaffolded yet** — only specs exist. Read these before implementing:
 
 - `specs/261103-auto-clicker-mvp/prd.md` — requirements (Chinese)
-- `specs/261103-auto-clicker-mvp/tech-design.md` — architecture, versions, module design, implementation order. Where it conflicts with the PRD, the tech design wins.
+- `specs/261103-auto-clicker-mvp/tech-design.md` — architecture, versions, module design. Where it conflicts with the PRD, the tech design wins.
+- `specs/261103-auto-clicker-mvp/implementation-plan.md` — the 7 tasks (T1–T7) to implement in order, each with scope and acceptance criteria. Update its status table and commit after finishing each task.
 
 ## Conventions
 

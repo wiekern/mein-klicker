@@ -12,6 +12,7 @@
 
 - [产品需求 PRD](specs/261103-auto-clicker-mvp/prd.md)
 - [技术设计](specs/261103-auto-clicker-mvp/tech-design.md)
+- [实施计划](specs/261103-auto-clicker-mvp/implementation-plan.md)
 
 ## License
 
