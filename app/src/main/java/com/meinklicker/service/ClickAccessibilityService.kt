@@ -7,7 +7,6 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
-import android.widget.Toast
 import com.meinklicker.TAG
 import com.meinklicker.container
 import com.meinklicker.data.Scheme
@@ -15,6 +14,7 @@ import com.meinklicker.engine.GestureDispatcher
 import com.meinklicker.engine.RunState
 import com.meinklicker.overlay.ControlBarOverlay
 import com.meinklicker.overlay.MarkerEditorOverlay
+import com.meinklicker.overlay.MessageOverlay
 import com.meinklicker.overlay.OverlayManager
 import com.meinklicker.overlay.TriggerZoneOverlay
 import com.meinklicker.ui.MainActivity
@@ -35,6 +35,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private lateinit var controlBar: ControlBarOverlay
     private var editor: MarkerEditorOverlay? = null
     private lateinit var triggerZone: TriggerZoneOverlay
+    private lateinit var messages: MessageOverlay
 
     /** 急停时吞掉的音量下键，对应的 UP 也要吞掉。 */
     private var swallowVolumeUp = false
@@ -50,6 +51,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         overlays = OverlayManager(this)
         controlBar = ControlBarOverlay(this, overlays, this)
         triggerZone = TriggerZoneOverlay(this, overlays, ::onTriggerTapped)
+        messages = MessageOverlay(this, overlays)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { scope = it }
         container.attachService(this)
 
@@ -120,7 +122,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     override fun onRun() {
         val scheme = checkedSelectedScheme() ?: return
-        runController.run(scheme.id)
+        Log.i(TAG, "run ${scheme.name}: ${runController.run(scheme.id)}")
     }
 
     override fun onArm() {
@@ -192,7 +194,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private fun startEditor(scheme: Scheme?) {
         if (editor != null || runController.state.value != RunState.Idle) return
         val defaultName = "方案 ${repository.schemes.value.size + 1}"
-        editor = MarkerEditorOverlay(this, overlays, scheme, defaultName) { result ->
+        editor = MarkerEditorOverlay(this, overlays, scheme, defaultName, ::toast) { result ->
             editor = null
             if (result != null) {
                 // 用进程级作用域：服务恰好断开时也要把文件和内存都更新完
@@ -211,5 +213,9 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         if (container.controlBarEnabled.value && editor == null) controlBar.show() else controlBar.hide()
     }
 
-    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    /** vivo 等 ROM 在通知权限关闭时会屏蔽 Toast，所以用悬浮窗提示。 */
+    private fun toast(text: String) {
+        Log.i(TAG, "message: $text")
+        messages.show(text)
+    }
 }

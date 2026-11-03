@@ -5,7 +5,6 @@ import android.graphics.Color
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import com.meinklicker.data.DEFAULT_DELAY_MS
 import com.meinklicker.data.LoopConfig
 import com.meinklicker.data.MIN_DELAY_MS
@@ -23,6 +22,7 @@ class MarkerEditorOverlay(
     private val overlays: OverlayManager,
     private val original: Scheme?,
     private val defaultName: String,
+    private val notify: (String) -> Unit,
     /** 保存时传入新方案，取消时传 null。 */
     private val onFinish: (Scheme?) -> Unit,
 ) {
@@ -187,7 +187,7 @@ class MarkerEditorOverlay(
 
     private fun save() {
         if (steps.isEmpty()) {
-            Toast.makeText(context, "至少需要 1 个步骤", Toast.LENGTH_SHORT).show()
+            notify("至少需要 1 个步骤")
             return
         }
         val scheme = Scheme(
