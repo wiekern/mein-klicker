@@ -76,6 +76,20 @@ class ClickEngineTest {
     }
 
     @Test
+    fun replayTriggerRetriesWhenAskedAtMostTwice() = runTest {
+        val fake = FakeGestureDispatcher(testScheduler)
+        var asks = 0
+        // 第一次补发被"截获"，第二次成功
+        ClickEngine(fake).replayTrigger(500, 600, TriggerConfig(1, 1, delayAfterMs = 0), retryIf = { ++asks == 1 })
+        assertEquals(2, fake.taps.size)
+        assertEquals(2, asks)
+
+        fake.taps.clear()
+        ClickEngine(fake).replayTrigger(500, 600, TriggerConfig(1, 1, delayAfterMs = 0), retryIf = { true })
+        assertEquals(1 + ClickEngine.MAX_REPLAY_RETRIES, fake.taps.size)
+    }
+
+    @Test
     fun replayTriggerTapsOnceThenWaits() = runTest {
         val fake = FakeGestureDispatcher(testScheduler)
         ClickEngine(fake).replayTrigger(500, 600, TriggerConfig(1, 1, delayAfterMs = 150))

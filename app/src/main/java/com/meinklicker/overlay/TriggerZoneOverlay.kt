@@ -26,6 +26,8 @@ class TriggerZoneOverlay(
     context: Context,
     private val overlays: OverlayManager,
     private val onTapped: (x: Int, y: Int) -> Unit,
+    /** 运行中（不应可触摸时）仍收到按下：说明补发的点击被触发区截获了。 */
+    private val onIntercepted: () -> Unit = {},
 ) {
     private val view = ZoneView(context)
     private val params = overlays.newParams()
@@ -103,6 +105,7 @@ class TriggerZoneOverlay(
                     if (visibility != View.VISIBLE) {
                         // 补发的点击落在了触发区上：NOT_TOUCHABLE 还没生效
                         Log.w(TAG, "replayed tap intercepted by trigger zone")
+                        onIntercepted()
                     }
                 }
                 // 滑动不算触发

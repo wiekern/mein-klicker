@@ -39,6 +39,9 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private lateinit var triggerZone: TriggerZoneOverlay
     private lateinit var messages: MessageOverlay
 
+    /** 补发的点击被触发区自己接住了（FLAG_NOT_TOUCHABLE 尚未生效），需要重发。 */
+    private var replayIntercepted = false
+
     /** 急停时吞掉的音量下键，对应的 UP 也要吞掉。 */
     private var swallowVolumeUp = false
 
@@ -52,7 +55,11 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         teardown()
         overlays = OverlayManager(this)
         controlBar = ControlBarOverlay(this, overlays, this)
-        triggerZone = TriggerZoneOverlay(this, overlays, ::onTriggerTapped)
+        triggerZone = TriggerZoneOverlay(this, overlays, ::onTriggerTapped) {
+            Log.w(TAG, "replay intercepted")
+            appendLatencyLog("${System.currentTimeMillis()} INTERCEPTED by trigger zone")
+            replayIntercepted = true
+        }
         messages = MessageOverlay(this, overlays)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { scope = it }
         container.attachService(this)
@@ -169,13 +176,27 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         return scheme
     }
 
-    /** 拦截 → 补发：先让触发区不再拦截触摸，等一帧，再在按下的位置补发点击。 */
+    /**
+     * 拦截 → 补发：先让触发区不再拦截触摸，等几帧，再在按下的位置补发点击。
+     * 偶尔 flag 仍未在输入系统生效，补发会被触发区接住；这时再等一轮后重发。
+     */
     private fun onTriggerTapped(x: Int, y: Int) {
         val upAt = SystemClock.uptimeMillis()
         triggerZone.suspendTouch()
+        replayIntercepted = false
         runController.onTriggerTapped(
             x, y,
             beforeReplay = { triggerZone.awaitTouchReleased() },
+            retryIf = {
+                if (replayIntercepted) {
+                    replayIntercepted = false
+                    appendLatencyLog("${System.currentTimeMillis()} retry replay")
+                    triggerZone.awaitTouchReleased()
+                    true
+                } else {
+                    false
+                }
+            },
             onReplayed = { recordReplayLatency(x, y, SystemClock.uptimeMillis() - upAt) },
         )
     }
@@ -222,8 +243,12 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private fun recordReplayLatency(x: Int, y: Int, ms: Long) {
         val line = "${System.currentTimeMillis()} replay ($x, $y) ${ms}ms"
         Log.i(TAG, line)
-        runCatching { File(filesDir, "latency.log").appendText(line + "\n") }
+        appendLatencyLog(line)
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) messages.show("补发延迟 $ms ms", 1200)
+    }
+
+    private fun appendLatencyLog(line: String) {
+        runCatching { File(filesDir, "latency.log").appendText(line + "\n") }
     }
 
     /** vivo 等 ROM 在通知权限关闭时会屏蔽 Toast，所以用悬浮窗提示。 */

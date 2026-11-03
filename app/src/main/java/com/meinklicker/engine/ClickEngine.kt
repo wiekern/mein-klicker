@@ -31,10 +31,28 @@ class ClickEngine(private val gestures: GestureDispatcher) {
         }
     }
 
-    /** 触发模式：在用户实际点击的坐标补发一次单击，然后等待 delayAfterMs。 */
-    suspend fun replayTrigger(x: Int, y: Int, trigger: TriggerConfig, onReplayed: () -> Unit = {}) {
+    /**
+     * 触发模式：在用户实际点击的坐标补发一次单击，然后等待 delayAfterMs。
+     * 补发后 [retryIf] 返回 true（例如补发被触发区自己截获）时重发，最多 [MAX_REPLAY_RETRIES] 次。
+     */
+    suspend fun replayTrigger(
+        x: Int,
+        y: Int,
+        trigger: TriggerConfig,
+        retryIf: suspend () -> Boolean = { false },
+        onReplayed: () -> Unit = {},
+    ) {
         gestures.tap(x, y)
+        var retries = 0
+        while (retries < MAX_REPLAY_RETRIES && retryIf()) {
+            gestures.tap(x, y)
+            retries++
+        }
         onReplayed()
         delay(trigger.delayAfterMs)
+    }
+
+    companion object {
+        const val MAX_REPLAY_RETRIES = 2
     }
 }
