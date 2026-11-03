@@ -14,7 +14,7 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * 编辑时在相邻步骤之间画连线，线中间带箭头指向下一步；触发点到第 1 步用红色虚线。
+ * 编辑时在相邻步骤之间画连线，线中间带箭头指向下一步；每个触发点到第 1 步用红色虚线。
  * 全屏但不可触摸，不影响操作下层应用和拖动标记。应在标记之前添加，让标记盖在线上。
  */
 internal class OrderLinesOverlay(context: Context, private val overlays: OverlayManager) {
@@ -22,7 +22,7 @@ internal class OrderLinesOverlay(context: Context, private val overlays: Overlay
     private val params = overlays.newParams(width = LayoutParams.MATCH_PARENT, height = LayoutParams.MATCH_PARENT)
         .apply { flags = flags or LayoutParams.FLAG_NOT_TOUCHABLE }
 
-    private var trigger: Point? = null
+    private var triggers: List<Point> = emptyList()
     private var steps: List<Point> = emptyList()
 
     fun show() {
@@ -34,8 +34,8 @@ internal class OrderLinesOverlay(context: Context, private val overlays: Overlay
 
     fun dismiss() = overlays.remove(view)
 
-    fun update(trigger: Point?, steps: List<Point>) {
-        this.trigger = trigger
+    fun update(triggers: List<Point>, steps: List<Point>) {
+        this.triggers = triggers
         this.steps = steps
         view.invalidate()
     }
@@ -55,7 +55,7 @@ internal class OrderLinesOverlay(context: Context, private val overlays: Overlay
         private val arrow = Path()
 
         override fun onDraw(canvas: Canvas) {
-            trigger?.let { t -> steps.firstOrNull()?.let { drawLink(canvas, t, it, triggerLine) } }
+            steps.firstOrNull()?.let { first -> triggers.forEach { drawLink(canvas, it, first, triggerLine) } }
             steps.zipWithNext().forEach { (a, b) -> drawLink(canvas, a, b, stepLine) }
         }
 

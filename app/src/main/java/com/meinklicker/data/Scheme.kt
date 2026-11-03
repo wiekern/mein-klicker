@@ -29,7 +29,7 @@ data class Step(val x: Int, val y: Int, val delayBeforeMs: Long = DEFAULT_DELAY_
 data class TriggerConfig(
     val x: Int,
     val y: Int,
-    val radiusDp: Int = 40,
+    val radiusDp: Int = DEFAULT_TRIGGER_RADIUS_DP,
     /** 补发点击后到第一个步骤的等待。 */
     val delayAfterMs: Long = DEFAULT_DELAY_MS,
 )
@@ -50,6 +50,7 @@ const val MIN_PRESS_MS = 10L
 /** 低于系统长按阈值（约 400 ms），避免被识别为长按。 */
 const val MAX_PRESS_MS = 300L
 const val MAX_TRIGGERS = 5
+const val DEFAULT_TRIGGER_RADIUS_DP = 40
 
 /** 触发点在标记和提示里的名字：只有 1 个时叫 T，多个时叫 T1、T2…。 */
 fun triggerLabel(index: Int, count: Int): String = if (count == 1) "T" else "T${index + 1}"

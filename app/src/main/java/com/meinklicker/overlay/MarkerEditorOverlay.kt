@@ -9,11 +9,14 @@ import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.meinklicker.data.DEFAULT_DELAY_MS
+import com.meinklicker.data.DEFAULT_TRIGGER_RADIUS_DP
 import com.meinklicker.data.LoopConfig
+import com.meinklicker.data.MAX_TRIGGERS
 import com.meinklicker.data.MIN_DELAY_MS
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.Step
 import com.meinklicker.data.TriggerConfig
+import com.meinklicker.data.triggerLabel
 import java.util.UUID
 
 /**
@@ -29,7 +32,14 @@ class MarkerEditorOverlay(
     /** 保存时传入新方案，取消时传 null。 */
     private val onFinish: (Scheme?) -> Unit,
 ) {
-    private inner class Marker(var x: Int, var y: Int, var delayMs: Long, val isTrigger: Boolean) {
+    private inner class Marker(
+        var x: Int,
+        var y: Int,
+        var delayMs: Long,
+        val isTrigger: Boolean,
+        /** 只对触发点有意义；编辑器里不改，在主界面的方案设置页修改。 */
+        val radiusDp: Int = DEFAULT_TRIGGER_RADIUS_DP,
+    ) {
         val view = MarkerView(context, if (isTrigger) TRIGGER_COLOR else STEP_COLOR)
         val params = overlays.newParams(width = markerSize, height = markerSize)
 
@@ -66,15 +76,14 @@ class MarkerEditorOverlay(
     private val screen = overlays.screen
     private val handler = Handler(Looper.getMainLooper())
 
-    private var trigger: Marker? = null
-    private var triggerRadiusDp = original?.triggers?.firstOrNull()?.radiusDp ?: 40
+    private val triggers = mutableListOf<Marker>()
     private val steps = mutableListOf<Marker>()
     private val lines = OrderLinesOverlay(context, overlays)
 
     // ---- 编辑栏：⠿ │ + 加步骤  🗑 清空 │ 👆 触发点 │ ✓ 保存  ✕ 取消 ----
 
     private val clearButton = CaptionButton(context, "🗑", CLEAR_CAPTION, captionWidth) { onClearTapped() }
-    private val triggerButton = CaptionButton(context, "👆", "触发点", captionWidth) { toggleTrigger() }
+    private val triggerButton = CaptionButton(context, "👆", "触发点", captionWidth) { addTrigger() }
     private var clearArmed = false
     private val disarmClear = Runnable { setClearArmed(false) }
 
@@ -150,11 +159,11 @@ class MarkerEditorOverlay(
     }
 
     fun show() {
-        original?.triggers?.firstOrNull()?.let { trigger = Marker(it.x, it.y, it.delayAfterMs, isTrigger = true) }
+        original?.triggers?.forEach { triggers += Marker(it.x, it.y, it.delayAfterMs, isTrigger = true, it.radiusDp) }
         original?.steps?.forEach { steps += Marker(it.x, it.y, it.delayBeforeMs, isTrigger = false) }
         // 连线先添加，标记盖在线上面
         lines.show()
-        trigger?.let { overlays.add(it.view, it.params) }
+        triggers.forEach { overlays.add(it.view, it.params) }
         steps.forEach { overlays.add(it.view, it.params) }
         relabel()
         overlays.add(bar, barParams)
@@ -163,7 +172,7 @@ class MarkerEditorOverlay(
     fun dismiss() {
         handler.removeCallbacks(disarmClear)
         closePanel()
-        trigger?.let { overlays.remove(it.view) }
+        triggers.forEach { overlays.remove(it.view) }
         steps.forEach { overlays.remove(it.view) }
         overlays.remove(bar)
         lines.dismiss()
@@ -183,8 +192,11 @@ class MarkerEditorOverlay(
         closePanel()
         overlays.remove(marker.view)
         if (marker.isTrigger) {
-            trigger = null
-            notify("已删除触发点")
+            val index = triggers.indexOf(marker)
+            val label = triggerLabel(index, triggers.size)
+            triggers.remove(marker)
+            val renumbered = if (index < triggers.size) "，后面的触发点已重新编号" else ""
+            notify(if (label == "T") "已删除触发点" else "已删除触发点 $label$renumbered")
         } else {
             val index = steps.indexOf(marker)
             steps.remove(marker)
@@ -218,18 +230,22 @@ class MarkerEditorOverlay(
         clearButton.background = if (armed) roundedBg(TRIGGER_COLOR, overlays.dp(8).toFloat()) else null
     }
 
-    private fun toggleTrigger() {
-        val current = trigger
-        if (current != null) {
-            deleteMarker(current)
+    /** 每点一次加一个触发点；点中任意一个都会开始运行。删除在标记的参数面板里。 */
+    private fun addTrigger() {
+        if (triggers.size >= MAX_TRIGGERS) {
+            notify("最多 $MAX_TRIGGERS 个触发点")
             return
         }
-        val marker = Marker(screen.width / 2, screen.height / 3, DEFAULT_DELAY_MS, true)
-        trigger = marker
+        val offset = overlays.dp(24) * triggers.size
+        val marker = Marker(screen.width / 2 + offset, screen.height / 3 + offset, DEFAULT_DELAY_MS, true)
+        triggers += marker
         overlays.add(marker.view, marker.params)
         raiseBar()
         relabel()
-        notify("已添加触发点（红色 T）：拖到你要亲手点的位置")
+        notify(
+            if (triggers.size == 1) "已添加触发点（红色 T）：拖到你要亲手点的位置"
+            else "已添加触发点 T${triggers.size}：点中任意一个触发点都会开始运行"
+        )
     }
 
     /** 新加的标记窗口会盖在编辑栏上，重新添加编辑栏让它保持在最上层。 */
@@ -239,10 +255,10 @@ class MarkerEditorOverlay(
     }
 
     private fun relabel() {
-        trigger?.view?.label = "T"
+        triggers.forEachIndexed { i, m -> m.view.label = triggerLabel(i, triggers.size) }
         steps.forEachIndexed { i, m -> m.view.label = "${i + 1}" }
-        // 已有触发点时按钮为红色圆底（与待命按钮、触发区同色），再点移除
-        triggerButton.background = if (trigger != null) roundedBg(TRIGGER_COLOR, overlays.dp(8).toFloat()) else null
+        // 已有触发点时按钮为红色圆底（与待命按钮、触发区同色）
+        triggerButton.background = if (triggers.isNotEmpty()) roundedBg(TRIGGER_COLOR, overlays.dp(8).toFloat()) else null
         clearButton.isEnabled = steps.isNotEmpty()
         if (steps.isEmpty()) setClearArmed(false)
         if (panelMarker != null) refreshPanel()
@@ -250,7 +266,7 @@ class MarkerEditorOverlay(
     }
 
     private fun refreshLines() {
-        lines.update(trigger?.let { Point(it.x, it.y) }, steps.map { Point(it.x, it.y) })
+        lines.update(triggers.map { Point(it.x, it.y) }, steps.map { Point(it.x, it.y) })
     }
 
     private fun save() {
@@ -258,7 +274,7 @@ class MarkerEditorOverlay(
             notify("至少需要 1 个步骤")
             return
         }
-        val triggers = listOfNotNull(trigger?.let { TriggerConfig(it.x, it.y, triggerRadiusDp, it.delayMs) })
+        val triggers = triggers.map { TriggerConfig(it.x, it.y, it.radiusDp, it.delayMs) }
         val steps = steps.map { Step(it.x, it.y, it.delayMs) }
         // 编辑已有方案时保留其他设置（循环、按压时长等）
         val scheme = original?.copy(
@@ -298,7 +314,12 @@ class MarkerEditorOverlay(
 
     private fun refreshPanel() {
         val m = panelMarker ?: return
-        panelTitle.text = if (m.isTrigger) "触发点" else "第 ${steps.indexOf(m) + 1} 步"
+        panelTitle.text = if (m.isTrigger) {
+            val label = triggerLabel(triggers.indexOf(m), triggers.size)
+            if (label == "T") "触发点" else "触发点 $label"
+        } else {
+            "第 ${steps.indexOf(m) + 1} 步"
+        }
         panelX.text = "X ${m.x}"
         panelY.text = "Y ${m.y}"
         panelDelay.text = if (m.isTrigger) "触发后延迟 ${m.delayMs} ms" else "等待 ${m.delayMs} ms"
