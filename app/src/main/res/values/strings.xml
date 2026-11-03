@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">MeinKlicker</string>
     <string name="a11y_label">MeinKlicker 自动点击</string>
-    <string name="a11y_description">用于按方案自动点击屏幕位置并显示悬浮控制栏。不收集、不上传任何数据。</string>
+    <string name="a11y_description">用于按方案自动点击屏幕位置并显示悬浮控制栏。</string>
 </resources>
