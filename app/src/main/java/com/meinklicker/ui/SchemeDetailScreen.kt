@@ -44,9 +44,9 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var infinite by remember(scheme.id) { mutableStateOf(scheme.loop.infinite) }
     var count by remember(scheme.id) { mutableStateOf(if (scheme.loop.infinite) "1" else "${scheme.loop.count}") }
     var interval by remember(scheme.id) { mutableStateOf("${scheme.loop.intervalMs}") }
-    var triggerDelay by remember(scheme.id, scheme.trigger != null) { mutableStateOf("${scheme.trigger?.delayAfterMs ?: ""}") }
-    var triggerRadius by remember(scheme.id, scheme.trigger != null) { mutableStateOf("${scheme.trigger?.radiusDp ?: ""}") }
-    val stepDelays = remember(scheme.id, scheme.steps.size) { mutableStateListOf(*scheme.steps.map { "${it.delayBeforeMs}" }.toTypedArray()) }
+    var triggerDelay by remember(scheme.id, scheme.trigger) { mutableStateOf("${scheme.trigger?.delayAfterMs ?: ""}") }
+    var triggerRadius by remember(scheme.id, scheme.trigger) { mutableStateOf("${scheme.trigger?.radiusDp ?: ""}") }
+    val stepDelays = remember(scheme.id, scheme.steps) { mutableStateListOf(*scheme.steps.map { "${it.delayBeforeMs}" }.toTypedArray()) }
 
     val countValue = count.toIntOrNull()?.takeIf { it >= 1 }
     val intervalValue = interval.toLongOrNull()?.takeIf { it >= 0 }

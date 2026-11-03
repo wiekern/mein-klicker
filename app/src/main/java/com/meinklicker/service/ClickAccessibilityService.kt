@@ -2,6 +2,7 @@ package com.meinklicker.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
@@ -44,6 +45,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "accessibility service connected")
+        // 部分 ROM 会对同一实例重复回调，先清掉上一次的悬浮窗和协程
+        teardown()
         overlays = OverlayManager(this)
         controlBar = ControlBarOverlay(this, overlays, this)
         triggerZone = TriggerZoneOverlay(this, overlays, ::onTriggerTapped)
@@ -60,7 +63,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         }
         // 触发区跟随状态：待命显示，触发运行中不拦截触摸，其余隐藏
         scope.launch {
-            runController.state.collect { state ->
+            // 同时观察方案：待命中在主界面改了触发点半径也能立即刷新
+            combine(runController.state, repository.schemes) { state, _ -> state }.collect { state ->
                 when (state) {
                     is RunState.Armed -> {
                         val trigger = repository.get(state.schemeId)?.trigger
@@ -125,6 +129,14 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             toast("该方案没有触发点，请先在编辑中添加")
             return
         }
+        controlBar.bounds()?.let { bar ->
+            val r = overlays.dp(scheme.trigger.radiusDp)
+            val t = scheme.trigger
+            if (Rect.intersects(bar, Rect(t.x - r, t.y - r, t.x + r, t.y + r))) {
+                toast("触发区与悬浮栏重叠，请先把悬浮栏拖开")
+                return
+            }
+        }
         runController.arm(scheme.id)
     }
 
@@ -159,7 +171,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         triggerZone.suspendTouch()
         runController.onTriggerTapped(
             x, y,
-            beforeReplay = { triggerZone.awaitFrame() },
+            beforeReplay = { triggerZone.awaitTouchReleased() },
             onReplayed = { Log.i(TAG, "trigger replayed at ($x, $y) in ${SystemClock.uptimeMillis() - upAt} ms") },
         )
     }
@@ -183,7 +195,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         editor = MarkerEditorOverlay(this, overlays, scheme, defaultName) { result ->
             editor = null
             if (result != null) {
-                scope?.launch {
+                // 用进程级作用域：服务恰好断开时也要把文件和内存都更新完
+                container.scope.launch {
                     repository.save(result)
                     container.selectScheme(result.id)
                     toast("已保存「${result.name}」")

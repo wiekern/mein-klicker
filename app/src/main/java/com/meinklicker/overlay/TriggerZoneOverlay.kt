@@ -5,14 +5,18 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.util.Log
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import com.meinklicker.TAG
 import com.meinklicker.data.TriggerConfig
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * 待命时以触发点为圆心的可触摸区域，屏幕其余部分不受影响。
@@ -51,8 +55,16 @@ class TriggerZoneOverlay(
 
     fun hide() = overlays.remove(view)
 
-    /** 等待一帧，让 FLAG_NOT_TOUCHABLE 在系统侧生效，再补发点击。 */
-    suspend fun awaitFrame() = suspendCancellableCoroutine { cont ->
+    /**
+     * 等 FLAG_NOT_TOUCHABLE 在输入系统侧生效后再补发点击。窗口信息要经 SurfaceFlinger
+     * 事务才到 InputDispatcher，通常比 relayout 晚一个 vsync，所以等两帧再留一点余量。
+     */
+    suspend fun awaitTouchReleased() {
+        repeat(2) { awaitFrame() }
+        delay(16)
+    }
+
+    private suspend fun awaitFrame() = suspendCancellableCoroutine { cont ->
         val callback = Choreographer.FrameCallback { if (cont.isActive) cont.resume(Unit) }
         Choreographer.getInstance().postFrameCallback(callback)
         cont.invokeOnCancellation { Choreographer.getInstance().removeFrameCallback(callback) }
@@ -70,6 +82,7 @@ class TriggerZoneOverlay(
         private var downX = 0f
         private var downY = 0f
         private var downInside = false
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
         override fun onDraw(canvas: Canvas) {
             val c = width / 2f
@@ -87,6 +100,14 @@ class TriggerZoneOverlay(
                     downY = e.rawY
                     // 窗口是正方形，只认圆内的按下
                     downInside = hypot(e.x - width / 2f, e.y - height / 2f) <= width / 2f
+                    if (visibility != View.VISIBLE) {
+                        // 补发的点击落在了触发区上：NOT_TOUCHABLE 还没生效
+                        Log.w(TAG, "replayed tap intercepted by trigger zone")
+                    }
+                }
+                // 滑动不算触发
+                MotionEvent.ACTION_MOVE -> if (hypot(e.rawX - downX, e.rawY - downY) > touchSlop) {
+                    downInside = false
                 }
                 MotionEvent.ACTION_UP -> if (downInside) {
                     downInside = false
