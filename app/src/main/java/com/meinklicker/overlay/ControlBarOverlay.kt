@@ -50,6 +50,14 @@ class ControlBarOverlay(
         isSingleLine = true
         maxWidth = buttonSize + overlays.dp(8)
     }
+    /** 当前方案的循环设置：×N 或 ∞。 */
+    private val loopText = TextView(context).apply {
+        setTextColor(0xFF80CBC4.toInt())
+        textSize = 10f
+        gravity = Gravity.CENTER
+        isSingleLine = true
+        maxWidth = buttonSize + overlays.dp(8)
+    }
     private val runButton = BarButton(context, "▶", buttonSize) { actions.onRun() }
     private val armButton = BarButton(context, "⚡", buttonSize) {
         if (state == RunState.Idle) actions.onArm() else actions.onDisarm()
@@ -61,14 +69,14 @@ class ControlBarOverlay(
     private val collapseButton = BarButton(context, "︽", buttonSize) { setCollapsed(!collapsed) }
 
     /** 收起时隐藏的部分。 */
-    private val secondary = listOf(statusText, armButton, editButton, pickButton, mainButton)
+    private val secondary = listOf(statusText, loopText, armButton, editButton, pickButton, mainButton)
 
     private val root = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         background = roundedBg(BAR_BG, overlays.dp(12).toFloat())
         setPadding(overlays.dp(2), overlays.dp(2), overlays.dp(2), overlays.dp(4))
-        listOf(handle, statusText, runButton, armButton, stopButton, editButton, pickButton, mainButton, collapseButton)
+        listOf(handle, statusText, loopText, runButton, armButton, stopButton, editButton, pickButton, mainButton, collapseButton)
             .forEach(::addView)
     }
 
@@ -119,6 +127,8 @@ class ControlBarOverlay(
                 else -> "${state.round}/${scheme.loop.count}轮"
             }
         }
+        loopText.text = scheme?.let { loopBadge(it) } ?: ""
+        loopText.visibility = if (collapsed || scheme == null) View.GONE else View.VISIBLE
         runButton.isEnabled = state == RunState.Idle && !scheme?.steps.isNullOrEmpty()
         val armed = state is RunState.Armed || (state is RunState.Running && state.fromTrigger)
         armButton.text = if (armed) "✕" else "⚡"
@@ -136,10 +146,13 @@ class ControlBarOverlay(
         return Rect(loc[0], loc[1], loc[0] + root.width, loc[1] + root.height)
     }
 
+    private fun loopBadge(scheme: Scheme) = if (scheme.loop.infinite) "∞" else "×${scheme.loop.count}"
+
     private fun setCollapsed(value: Boolean) {
         collapsed = value
         if (value) picker.dismiss()
         secondary.forEach { it.visibility = if (value) View.GONE else View.VISIBLE }
+        if (!value && loopText.text.isEmpty()) loopText.visibility = View.GONE
         collapseButton.text = if (value) "︾" else "︽"
     }
 
@@ -186,7 +199,7 @@ class ControlBarOverlay(
             list.removeAllViews()
             schemes.forEach { s ->
                 val mark = if (s.id == selectedId) "✓ " else "　 "
-                list.addView(item(mark + s.name) { dismiss(); actions.onSelectScheme(s.id) })
+                list.addView(item("$mark${s.name}  ${loopBadge(s)}") { dismiss(); actions.onSelectScheme(s.id) })
             }
             list.addView(item("＋ 新建方案") { dismiss(); actions.onNewScheme() })
         }
