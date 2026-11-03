@@ -59,7 +59,8 @@ class ControlBarOverlay(
         maxWidth = buttonSize + overlays.dp(8)
     }
     private val runButton = BarButton(context, "▶", buttonSize) { actions.onRun() }
-    private val armButton = BarButton(context, "⚡", buttonSize) {
+    /** 待命开关：👆 表示"等你先点一下"；待命中红色圆底（与触发区同色），再点退出。 */
+    private val armButton = BarButton(context, "👆", buttonSize) {
         if (state == RunState.Idle) actions.onArm() else actions.onDisarm()
     }
     private val stopButton = BarButton(context, "■", buttonSize) { actions.onStop() }
@@ -131,7 +132,7 @@ class ControlBarOverlay(
         loopText.visibility = if (collapsed || scheme == null) View.GONE else View.VISIBLE
         runButton.isEnabled = state == RunState.Idle && !scheme?.steps.isNullOrEmpty()
         val armed = state is RunState.Armed || (state is RunState.Running && state.fromTrigger)
-        armButton.text = if (armed) "✕" else "⚡"
+        armButton.background = if (armed) circleBg(TRIGGER_COLOR) else null
         armButton.isEnabled = armed || (state == RunState.Idle && scheme?.trigger != null)
         stopButton.isEnabled = state is RunState.Running
         editButton.isEnabled = state == RunState.Idle

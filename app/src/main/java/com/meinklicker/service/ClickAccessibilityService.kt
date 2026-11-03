@@ -148,10 +148,13 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
                 return
             }
         }
-        runController.arm(scheme.id)
+        if (runController.arm(scheme.id)) toast("已待命：点红圈里的目标开始，再点 👆 退出")
     }
 
-    override fun onDisarm() = runController.disarm()
+    override fun onDisarm() {
+        runController.disarm()
+        toast("已退出待命")
+    }
 
     override fun onStop() = runController.stop()
 
