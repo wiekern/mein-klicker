@@ -19,43 +19,53 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
- * 待命时以触发点为圆心的可触摸区域，屏幕其余部分不受影响。
- * 手指抬起时回调 [onTapped]，坐标取按下时的位置（最接近用户想点的点）。
+ * 待命时以各触发点为圆心的可触摸区域，每个触发点一个窗口，屏幕其余部分不受影响。
+ * 手指抬起时回调 [onTapped]（触发点序号 + 按下时的坐标，最接近用户想点的点）。
  */
 class TriggerZoneOverlay(
-    context: Context,
+    private val context: Context,
     private val overlays: OverlayManager,
-    private val onTapped: (x: Int, y: Int) -> Unit,
-    /** 运行中（不应可触摸时）仍收到按下：说明补发的点击被触发区截获了。 */
+    private val onTapped: (index: Int, x: Int, y: Int) -> Unit,
+    /** 运行中（不应可触摸时）仍收到按下：说明补发的点击被某个触发区截获了。 */
     private val onIntercepted: () -> Unit = {},
 ) {
-    private val view = ZoneView(context)
-    private val params = overlays.newParams()
-    private var radius = 0
-
-    val isShown: Boolean get() = overlays.isShown(view)
-
-    /** 显示（或恢复）为可触摸的待命状态。 */
-    fun show(trigger: TriggerConfig) {
-        radius = overlays.dp(trigger.radiusDp)
-        params.width = radius * 2
-        params.height = radius * 2
-        params.x = trigger.x - radius
-        params.y = trigger.y - radius
-        view.visibility = View.VISIBLE
-        // 已显示时更新位置并恢复可触摸；未显示时 setTouchable 只改 flag，由 add 生效
-        overlays.setTouchable(view, params, true)
-        overlays.add(view, params)
+    private inner class Zone(val index: Int) {
+        val view = ZoneView(context, index)
+        val params = overlays.newParams()
     }
 
-    /** 运行期间：不再拦截触摸并隐藏，窗口保留以便快速恢复。 */
+    private val zones = mutableListOf<Zone>()
+
+    /** 显示（或恢复）为可触摸的待命状态；窗口按列表复用，多余的移除。 */
+    fun show(triggers: List<TriggerConfig>) {
+        while (zones.size > triggers.size) overlays.remove(zones.removeAt(zones.lastIndex).view)
+        while (zones.size < triggers.size) zones += Zone(zones.size)
+        triggers.forEachIndexed { i, trigger ->
+            val zone = zones[i]
+            val radius = overlays.dp(trigger.radiusDp)
+            zone.params.width = radius * 2
+            zone.params.height = radius * 2
+            zone.params.x = trigger.x - radius
+            zone.params.y = trigger.y - radius
+            zone.view.visibility = View.VISIBLE
+            // 已显示时更新位置并恢复可触摸；未显示时 setTouchable 只改 flag，由 add 生效
+            overlays.setTouchable(zone.view, zone.params, true)
+            overlays.add(zone.view, zone.params)
+        }
+    }
+
+    /** 运行期间：所有触发区不再拦截触摸并隐藏，窗口保留以便快速恢复。 */
     fun suspendTouch() {
-        if (!isShown) return
-        view.visibility = View.INVISIBLE
-        overlays.setTouchable(view, params, false)
+        zones.filter { overlays.isShown(it.view) }.forEach {
+            it.view.visibility = View.INVISIBLE
+            overlays.setTouchable(it.view, it.params, false)
+        }
     }
 
-    fun hide() = overlays.remove(view)
+    fun hide() {
+        zones.forEach { overlays.remove(it.view) }
+        zones.clear()
+    }
 
     /**
      * 等 FLAG_NOT_TOUCHABLE 在输入系统侧生效后再补发点击。窗口信息要经 SurfaceFlinger
@@ -72,7 +82,7 @@ class TriggerZoneOverlay(
         cont.invokeOnCancellation { Choreographer.getInstance().removeFrameCallback(callback) }
     }
 
-    private inner class ZoneView(context: Context) : View(context) {
+    private inner class ZoneView(context: Context, private val index: Int) : View(context) {
         private val density = resources.displayMetrics.density
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x40E53935 }
         private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -114,7 +124,7 @@ class TriggerZoneOverlay(
                 }
                 MotionEvent.ACTION_UP -> if (downInside) {
                     downInside = false
-                    onTapped(downX.roundToInt(), downY.roundToInt())
+                    onTapped(index, downX.roundToInt(), downY.roundToInt())
                 }
                 MotionEvent.ACTION_CANCEL -> downInside = false
             }

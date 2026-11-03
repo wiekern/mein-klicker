@@ -51,6 +51,9 @@ const val MIN_PRESS_MS = 10L
 const val MAX_PRESS_MS = 300L
 const val MAX_TRIGGERS = 5
 
+/** 触发点在标记和提示里的名字：只有 1 个时叫 T，多个时叫 T1、T2…。 */
+fun triggerLabel(index: Int, count: Int): String = if (count == 1) "T" else "T${index + 1}"
+
 /** 把旧版本的单个触发点迁移到 [Scheme.triggers]。 */
 internal fun Scheme.migrated(): Scheme = when {
     legacyTrigger == null -> this

@@ -10,6 +10,7 @@ import android.view.accessibility.AccessibilityEvent
 import com.meinklicker.TAG
 import com.meinklicker.container
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.triggerLabel
 import com.meinklicker.engine.GestureDispatcher
 import com.meinklicker.engine.RunState
 import com.meinklicker.overlay.ControlBarOverlay
@@ -86,8 +87,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             combine(runController.state, repository.schemes) { state, _ -> state }.collect { state ->
                 when (state) {
                     is RunState.Armed -> {
-                        val trigger = repository.get(state.schemeId)?.triggers?.firstOrNull()
-                        if (trigger != null) triggerZone.show(trigger) else runController.disarm()
+                        val triggers = repository.get(state.schemeId)?.triggers.orEmpty()
+                        if (triggers.isNotEmpty()) triggerZone.show(triggers) else runController.disarm()
                     }
                     is RunState.Running -> if (state.fromTrigger) triggerZone.suspendTouch() else triggerZone.hide()
                     RunState.Idle -> triggerZone.hide()
@@ -129,16 +130,19 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     override fun onArm() {
         val scheme = checkedSelectedScheme() ?: return
-        val trigger = scheme.triggers.firstOrNull()
-        if (trigger == null) {
+        val triggers = scheme.triggers
+        if (triggers.isEmpty()) {
             toast("该方案没有触发点，请先在编辑中添加")
             return
         }
         controlBar.bounds()?.let { bar ->
-            val r = overlays.dp(trigger.radiusDp)
-            val t = trigger
-            if (Rect.intersects(bar, Rect(t.x - r, t.y - r, t.x + r, t.y + r))) {
-                toast("触发区与悬浮栏重叠，请先把悬浮栏拖开")
+            val hit = triggers.indexOfFirst { t ->
+                val r = overlays.dp(t.radiusDp)
+                Rect.intersects(bar, Rect(t.x - r, t.y - r, t.x + r, t.y + r))
+            }
+            if (hit >= 0) {
+                val which = if (triggers.size == 1) "触发区" else "触发点 ${triggerLabel(hit, triggers.size)}"
+                toast("${which}与悬浮栏重叠，请先把悬浮栏拖开")
                 return
             }
         }
@@ -177,12 +181,12 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
      * 拦截 → 补发：先让触发区不再拦截触摸，等几帧，再在按下的位置补发点击。
      * 偶尔 flag 仍未在输入系统生效，补发会被触发区接住；这时再等一轮后重发。
      */
-    private fun onTriggerTapped(x: Int, y: Int) {
+    private fun onTriggerTapped(index: Int, x: Int, y: Int) {
         val upAt = SystemClock.uptimeMillis()
         triggerZone.suspendTouch()
         replayIntercepted = false
         runController.onTriggerTapped(
-            0, x, y,
+            index, x, y,
             beforeReplay = { triggerZone.awaitTouchReleased() },
             retryIf = {
                 if (replayIntercepted) {
