@@ -2,6 +2,9 @@ package com.meinklicker.overlay
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Point
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -15,7 +18,7 @@ import java.util.UUID
 
 /**
  * 在目标应用界面上拖动标记设置位置。每个标记一个独立的小窗口，
- * 这样标记以外的区域仍然可以操作下层应用。
+ * 这样标记以外的区域仍然可以操作下层应用。相邻步骤之间画连线和箭头表示顺序。
  */
 class MarkerEditorOverlay(
     private val context: Context,
@@ -48,6 +51,7 @@ class MarkerEditorOverlay(
             place()
             overlays.update(view, params)
             if (panelMarker === this) refreshPanel()
+            refreshLines()
         }
 
         private fun place() {
@@ -58,16 +62,22 @@ class MarkerEditorOverlay(
 
     private val markerSize = overlays.dp(48)
     private val buttonSize = overlays.dp(40)
+    private val captionWidth = overlays.dp(52)
     private val screen = overlays.screen
+    private val handler = Handler(Looper.getMainLooper())
 
     private var trigger: Marker? = null
     private var triggerRadiusDp = original?.trigger?.radiusDp ?: 40
     private val steps = mutableListOf<Marker>()
+    private val lines = OrderLinesOverlay(context, overlays)
 
-    // ---- 编辑栏 ----
+    // ---- 编辑栏：⠿ │ + 加步骤  🗑 清空 │ 👆 触发点 │ ✓ 保存  ✕ 取消 ----
 
-    private val toggleTriggerButton = BarButton(context, "", buttonSize) { toggleTrigger() }
-    private val removeButton = BarButton(context, "−", buttonSize) { removeLastStep() }
+    private val clearButton = CaptionButton(context, "🗑", CLEAR_CAPTION, captionWidth) { onClearTapped() }
+    private val triggerButton = CaptionButton(context, "👆", "触发点", captionWidth) { toggleTrigger() }
+    private var clearArmed = false
+    private val disarmClear = Runnable { setClearArmed(false) }
+
     private val barParams = overlays.newParams(x = overlays.dp(8), y = screen.height * 3 / 4)
     private val bar = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -93,11 +103,15 @@ class MarkerEditorOverlay(
                 },
             ))
         })
-        addView(BarButton(context, "+", buttonSize) { addStep() })
-        addView(removeButton)
-        addView(toggleTriggerButton)
-        addView(BarButton(context, "保存", buttonSize) { save() })
-        addView(BarButton(context, "取消", buttonSize) { finish(null) })
+        val dividerHeight = overlays.dp(32)
+        addView(verticalDivider(context, dividerHeight))
+        addView(CaptionButton(context, "+", "加步骤", captionWidth) { addStep() })
+        addView(clearButton)
+        addView(verticalDivider(context, dividerHeight))
+        addView(triggerButton)
+        addView(verticalDivider(context, dividerHeight))
+        addView(CaptionButton(context, "✓", "保存", captionWidth) { save() })
+        addView(CaptionButton(context, "✕", "取消", captionWidth) { finish(null) })
     }
 
     // ---- 单个标记的参数面板 ----
@@ -121,12 +135,25 @@ class MarkerEditorOverlay(
                 refreshPanel()
             }
         })
-        addView(BarButton(context, "关闭", buttonSize) { closePanel() })
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(BarButton(context, "删除", buttonSize) { panelMarker?.let(::deleteMarker) }.apply {
+                setTextColor(0xFFEF9A9A.toInt())
+                textSize = 15f
+                minWidth = overlays.dp(72)
+            })
+            addView(BarButton(context, "关闭", buttonSize) { closePanel() }.apply {
+                textSize = 15f
+                minWidth = overlays.dp(72)
+            })
+        })
     }
 
     fun show() {
         original?.trigger?.let { trigger = Marker(it.x, it.y, it.delayAfterMs, isTrigger = true) }
         original?.steps?.forEach { steps += Marker(it.x, it.y, it.delayBeforeMs, isTrigger = false) }
+        // 连线先添加，标记盖在线上面
+        lines.show()
         trigger?.let { overlays.add(it.view, it.params) }
         steps.forEach { overlays.add(it.view, it.params) }
         relabel()
@@ -134,10 +161,12 @@ class MarkerEditorOverlay(
     }
 
     fun dismiss() {
+        handler.removeCallbacks(disarmClear)
         closePanel()
         trigger?.let { overlays.remove(it.view) }
         steps.forEach { overlays.remove(it.view) }
         overlays.remove(bar)
+        lines.dismiss()
     }
 
     private fun addStep() {
@@ -150,26 +179,57 @@ class MarkerEditorOverlay(
         relabel()
     }
 
-    private fun removeLastStep() {
-        val marker = steps.removeLastOrNull() ?: return
-        if (panelMarker === marker) closePanel()
+    private fun deleteMarker(marker: Marker) {
+        closePanel()
         overlays.remove(marker.view)
+        if (marker.isTrigger) {
+            trigger = null
+            notify("已删除触发点")
+        } else {
+            val index = steps.indexOf(marker)
+            steps.remove(marker)
+            notify("已删除第 ${index + 1} 步，后面的步骤已重新编号")
+        }
         relabel()
+    }
+
+    /** 清空需要 3 秒内连点两次，防止误触；触发点保留。 */
+    private fun onClearTapped() {
+        if (steps.isEmpty()) return
+        if (!clearArmed) {
+            setClearArmed(true)
+            notify("再点一次 🗑 清空全部 ${steps.size} 步（触发点保留）")
+            handler.postDelayed(disarmClear, 3000)
+            return
+        }
+        handler.removeCallbacks(disarmClear)
+        setClearArmed(false)
+        val count = steps.size
+        if (panelMarker?.isTrigger == false) closePanel()
+        steps.forEach { overlays.remove(it.view) }
+        steps.clear()
+        relabel()
+        notify("已清空 $count 步；点 ✕ 取消可恢复")
+    }
+
+    private fun setClearArmed(armed: Boolean) {
+        clearArmed = armed
+        clearButton.caption = if (armed) "再点确认" else CLEAR_CAPTION
+        clearButton.background = if (armed) roundedBg(TRIGGER_COLOR, overlays.dp(8).toFloat()) else null
     }
 
     private fun toggleTrigger() {
         val current = trigger
         if (current != null) {
-            if (panelMarker === current) closePanel()
-            overlays.remove(current.view)
-            trigger = null
-        } else {
-            val marker = Marker(screen.width / 2, screen.height / 3, DEFAULT_DELAY_MS, true)
-            trigger = marker
-            overlays.add(marker.view, marker.params)
-            raiseBar()
+            deleteMarker(current)
+            return
         }
+        val marker = Marker(screen.width / 2, screen.height / 3, DEFAULT_DELAY_MS, true)
+        trigger = marker
+        overlays.add(marker.view, marker.params)
+        raiseBar()
         relabel()
+        notify("已添加触发点（红色 T）：拖到你要亲手点的位置")
     }
 
     /** 新加的标记窗口会盖在编辑栏上，重新添加编辑栏让它保持在最上层。 */
@@ -181,8 +241,16 @@ class MarkerEditorOverlay(
     private fun relabel() {
         trigger?.view?.label = "T"
         steps.forEachIndexed { i, m -> m.view.label = "${i + 1}" }
-        toggleTriggerButton.text = if (trigger == null) "+T" else "−T"
-        removeButton.isEnabled = steps.isNotEmpty()
+        // 已有触发点时按钮为红色圆底（与待命按钮、触发区同色），再点移除
+        triggerButton.background = if (trigger != null) roundedBg(TRIGGER_COLOR, overlays.dp(8).toFloat()) else null
+        clearButton.isEnabled = steps.isNotEmpty()
+        if (steps.isEmpty()) setClearArmed(false)
+        if (panelMarker != null) refreshPanel()
+        refreshLines()
+    }
+
+    private fun refreshLines() {
+        lines.update(trigger?.let { Point(it.x, it.y) }, steps.map { Point(it.x, it.y) })
     }
 
     private fun save() {
@@ -190,14 +258,23 @@ class MarkerEditorOverlay(
             notify("至少需要 1 个步骤")
             return
         }
-        val scheme = Scheme(
-            id = original?.id ?: UUID.randomUUID().toString(),
-            name = original?.name ?: defaultName,
+        val trigger = trigger?.let { TriggerConfig(it.x, it.y, triggerRadiusDp, it.delayMs) }
+        val steps = steps.map { Step(it.x, it.y, it.delayMs) }
+        // 编辑已有方案时保留其他设置（循环、按压时长等）
+        val scheme = original?.copy(
             screenWidth = screen.width,
             screenHeight = screen.height,
-            trigger = trigger?.let { TriggerConfig(it.x, it.y, triggerRadiusDp, it.delayMs) },
-            steps = steps.map { Step(it.x, it.y, it.delayMs) },
-            loop = original?.loop ?: LoopConfig(),
+            trigger = trigger,
+            steps = steps,
+            updatedAt = System.currentTimeMillis(),
+        ) ?: Scheme(
+            id = UUID.randomUUID().toString(),
+            name = defaultName,
+            screenWidth = screen.width,
+            screenHeight = screen.height,
+            trigger = trigger,
+            steps = steps,
+            loop = LoopConfig(),
             updatedAt = System.currentTimeMillis(),
         )
         finish(scheme)
@@ -214,7 +291,7 @@ class MarkerEditorOverlay(
         // 面板放在标记下方，靠下时放到上方
         panelParams.x = overlays.dp(16)
         panelParams.y = if (marker.y < screen.height / 2) marker.y + markerSize else {
-            (marker.y - markerSize - overlays.dp(240)).coerceAtLeast(0)
+            (marker.y - markerSize - overlays.dp(280)).coerceAtLeast(0)
         }
         if (overlays.isShown(panel)) overlays.update(panel, panelParams) else overlays.add(panel, panelParams)
     }
@@ -253,4 +330,8 @@ class MarkerEditorOverlay(
                 }
             })
         }
+
+    private companion object {
+        const val CLEAR_CAPTION = "清空"
+    }
 }

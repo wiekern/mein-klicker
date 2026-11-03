@@ -13,7 +13,11 @@ import kotlin.coroutines.resume
  * 用 dispatchGesture 实现单击。挂起直到 onCompleted/onCancelled，
  * 保证串行：新的 dispatchGesture 会取消仍在执行的旧手势。
  */
-class AccessibilityGestureDispatcher(private val service: AccessibilityService) : GestureDispatcher {
+class AccessibilityGestureDispatcher(
+    private val service: AccessibilityService,
+    /** 每次发出点击时回调（主线程），用于显示点击特效。 */
+    private val onTap: (x: Int, y: Int) -> Unit = { _, _ -> },
+) : GestureDispatcher {
 
     override suspend fun tap(x: Int, y: Int, durationMs: Long): Boolean =
         suspendCancellableCoroutine { cont ->
@@ -31,6 +35,7 @@ class AccessibilityGestureDispatcher(private val service: AccessibilityService) 
                     if (cont.isActive) cont.resume(false)
                 }
             }
+            onTap(x, y)
             if (!service.dispatchGesture(gesture, callback, null)) {
                 Log.w(TAG, "dispatchGesture rejected at ($x, $y)")
                 cont.resume(false)

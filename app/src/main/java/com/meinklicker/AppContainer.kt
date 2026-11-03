@@ -52,6 +52,15 @@ class AppContainer(context: Context) {
         prefs.edit().putBoolean(KEY_CONTROL_BAR, enabled).apply()
     }
 
+    private val _tapEffectEnabled = MutableStateFlow(prefs.getBoolean(KEY_TAP_EFFECT, true))
+    /** 运行时是否在点击位置显示扩散圆圈。 */
+    val tapEffectEnabled: StateFlow<Boolean> = _tapEffectEnabled.asStateFlow()
+
+    fun setTapEffectEnabled(enabled: Boolean) {
+        _tapEffectEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_TAP_EFFECT, enabled).apply()
+    }
+
     fun attachService(service: ClickAccessibilityService) {
         _serviceFlow.value = service
     }
@@ -63,6 +72,7 @@ class AppContainer(context: Context) {
     private companion object {
         const val KEY_SELECTED = "selected_scheme"
         const val KEY_CONTROL_BAR = "control_bar"
+        const val KEY_TAP_EFFECT = "tap_effect"
     }
 }
 

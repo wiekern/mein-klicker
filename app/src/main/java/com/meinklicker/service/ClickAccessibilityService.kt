@@ -17,6 +17,7 @@ import com.meinklicker.overlay.ControlBarOverlay
 import com.meinklicker.overlay.MarkerEditorOverlay
 import com.meinklicker.overlay.MessageOverlay
 import com.meinklicker.overlay.OverlayManager
+import com.meinklicker.overlay.TapEffectOverlay
 import com.meinklicker.overlay.TriggerZoneOverlay
 import com.meinklicker.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -30,7 +31,9 @@ import java.io.File
 /** 核心宿主：托管所有悬浮窗，执行手势，把用户动作转给 RunController。 */
 class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Actions {
 
-    val gestures: GestureDispatcher by lazy { AccessibilityGestureDispatcher(this) }
+    val gestures: GestureDispatcher by lazy {
+        AccessibilityGestureDispatcher(this) { x, y -> if (::tapEffect.isInitialized) tapEffect.tapAt(x, y) }
+    }
 
     private var scope: CoroutineScope? = null
     private lateinit var overlays: OverlayManager
@@ -38,6 +41,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private var editor: MarkerEditorOverlay? = null
     private lateinit var triggerZone: TriggerZoneOverlay
     private lateinit var messages: MessageOverlay
+    private lateinit var tapEffect: TapEffectOverlay
 
     /** 补发的点击被触发区自己接住了（FLAG_NOT_TOUCHABLE 尚未生效），需要重发。 */
     private var replayIntercepted = false
@@ -61,6 +65,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             replayIntercepted = true
         }
         messages = MessageOverlay(this, overlays)
+        tapEffect = TapEffectOverlay(this, overlays)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { scope = it }
         container.attachService(this)
 
@@ -71,6 +76,12 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             combine(runController.state, repository.schemes, container.selectedSchemeId) { state, list, id ->
                 Triple(state, list.find { it.id == id }, list)
             }.collect { (state, scheme, list) -> controlBar.render(state, scheme, list) }
+        }
+        // 点击特效只在运行期间显示（全屏、不可触摸）
+        scope.launch {
+            combine(runController.state, container.tapEffectEnabled) { state, enabled ->
+                enabled && state is RunState.Running
+            }.collect { if (it) tapEffect.show() else tapEffect.hide() }
         }
         // 触发区跟随状态：待命显示，触发运行中不拦截触摸，其余隐藏
         scope.launch {

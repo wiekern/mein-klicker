@@ -27,7 +27,8 @@ internal class MarkerView(context: Context, private val fillColor: Int) : View(c
     }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = 12 * density
+        textSize = 16 * density
+        setShadowLayer(2 * density, 0f, 0f, 0x99000000.toInt())
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
@@ -42,6 +43,6 @@ internal class MarkerView(context: Context, private val fillColor: Int) : View(c
         canvas.drawLine(cx - arm, cy, cx + arm, cy, cross)
         canvas.drawLine(cx, cy - arm, cx, cy + arm, cross)
         // 编号放在中心上方，避免挡住十字
-        canvas.drawText(label, cx, cy - 6 * density, text)
+        canvas.drawText(label, cx, cy - 7 * density, text)
     }
 }

@@ -134,6 +134,7 @@ private fun StatusCard() {
     val container = context.container
     val service by container.serviceFlow.collectAsStateWithLifecycle()
     val barEnabled by container.controlBarEnabled.collectAsStateWithLifecycle()
+    val tapEffect by container.tapEffectEnabled.collectAsStateWithLifecycle()
     val runState by container.runController.state.collectAsStateWithLifecycle()
     // 电池优化状态只能轮询，回到前台时刷新
     var resumeTick by remember { mutableIntStateOf(0) }
@@ -180,6 +181,13 @@ private fun StatusCard() {
                     )
                 }
                 Switch(checked = barEnabled, onCheckedChange = container::setControlBarEnabled)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("点击特效")
+                    Text("运行时在点击位置显示扩散圆圈", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = tapEffect, onCheckedChange = container::setTapEffectEnabled)
             }
         }
     }
