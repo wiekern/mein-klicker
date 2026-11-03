@@ -17,10 +17,10 @@
 命令行：
 
 ```bash
-# 1. 在项目根目录写 local.properties，指向本机 Android SDK
-echo "sdk.dir=C:/Users/<你>/AppData/Local/Android/Sdk" > local.properties
+# 1. 在项目根目录写 local.properties，指向本机 Android SDK（Windows 路径用正斜杠）
+echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 
-# 2. 使用 JDK 17（这里用 Android Studio 自带的 JBR）
+# 2. 使用 JDK 17，例如 Android Studio 自带的 JBR
 export JAVA_HOME="/path/to/Android Studio/jbr"
 
 # 3. 编译 / 测试
@@ -55,7 +55,7 @@ adb logcat -s MeinKlicker                                # 查看日志
 3. **自启动 / 后台运行** → 去设置 → 允许 MeinKlicker 自启动、后台运行；
 4. 在最近任务里把 MeinKlicker 下拉**锁定**。
 
-**vivo / OriginOS 注意**：在无障碍服务详情页打开开关后，要用 **Home 手势（从底部上滑）** 离开，**不要按返回**。vivo 的详情页会显示错误的开关状态（服务已开启却显示关闭），按返回离开时会把服务关掉（在 vivo V2405A / Android 17 上确认）。反过来，关闭服务后也可能在几秒后被重新打开；以 MeinKlicker 主界面显示的状态为准。也可以用电脑执行：
+**vivo / OriginOS 注意**：在无障碍服务详情页打开开关后，要用 **Home 手势（从底部上滑）** 离开，**不要按返回**。vivo 的详情页会显示错误的开关状态（服务已开启却显示关闭），按返回离开时会把服务关掉（在某些 OriginOS 版本上出现）。反过来，关闭服务后也可能在几秒后被重新打开；以 MeinKlicker 主界面显示的状态为准。也可以用电脑执行：
 
 ```bash
 adb shell settings put secure enabled_accessibility_services com.meinklicker/com.meinklicker.service.ClickAccessibilityService
@@ -104,11 +104,11 @@ ColorOS / OriginOS 清理后台时可能关闭无障碍服务。如果悬浮栏�
 
 触发点不计入循环：循环 3 次时，触发点只点 1 次，后续步骤执行 3 轮。补发会比直接点击多几十毫秒的延迟。
 
-## 文档
+## 工作原理
 
-- [产品需求 PRD](specs/261103-auto-clicker-mvp/prd.md)
-- [技术设计](specs/261103-auto-clicker-mvp/tech-design.md)
-- [实施计划](specs/261103-auto-clicker-mvp/implementation-plan.md)
+- 点击通过无障碍服务的 `dispatchGesture()` 执行，所有悬浮窗（控制栏、标记、触发区）也由无障碍服务托管；
+- 手动触发采用"拦截 → 补发"：触发区先接住你的点击，随即变为不可触摸，再在同一位置补发一次点击给下层应用，然后执行后续步骤。补发会比直接点击多几十毫秒；
+- 方案保存在应用私有目录的 `schemes.json` 中。
 
 ## License
 
