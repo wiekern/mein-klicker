@@ -20,7 +20,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb logcat -s MeinKlicker
 ```
 
-Some ROMs mute app logs; trigger-replay latency and interception events are also appended to `files/latency.log` (`adb shell run-as com.meinklicker cat files/latency.log`).
+Some ROMs mute app logs; in debug builds trigger-replay latency and interception events are also appended to `files/latency.log` (`adb shell run-as com.meinklicker cat files/latency.log`).
 
 ## Architecture
 
