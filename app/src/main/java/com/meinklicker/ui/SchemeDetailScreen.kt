@@ -2,6 +2,7 @@ package com.meinklicker.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +38,7 @@ import com.meinklicker.data.MAX_PRESS_MS
 import com.meinklicker.data.MIN_DELAY_MS
 import com.meinklicker.data.MIN_PRESS_MS
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.triggerLabel
 import kotlinx.coroutines.launch
 
 /** 方案参数设置。位置不在这里设置，在目标应用上用悬浮栏的 ✎ 拖动设置。 */
@@ -51,21 +53,22 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var interval by remember(scheme.id) { mutableStateOf("${scheme.loop.intervalMs}") }
     var press by remember(scheme.id) { mutableStateOf("${scheme.pressMs}") }
     var showPressTips by remember { mutableStateOf(false) }
-    var triggerDelay by remember(scheme.id, scheme.triggers) { mutableStateOf("${scheme.triggers.firstOrNull()?.delayAfterMs ?: ""}") }
-    var triggerRadius by remember(scheme.id, scheme.triggers) { mutableStateOf("${scheme.triggers.firstOrNull()?.radiusDp ?: ""}") }
+    val triggerDelays = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.delayAfterMs}" }.toTypedArray()) }
+    val triggerRadii = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.radiusDp}" }.toTypedArray()) }
     val stepDelays = remember(scheme.id, scheme.steps) { mutableStateListOf(*scheme.steps.map { "${it.delayBeforeMs}" }.toTypedArray()) }
 
     val countValue = count.toIntOrNull()?.takeIf { it >= 1 }
     val intervalValue = interval.toLongOrNull()?.takeIf { it >= 0 }
     val pressValue = press.toLongOrNull()?.takeIf { it in MIN_PRESS_MS..MAX_PRESS_MS }
-    val triggerDelayValue = triggerDelay.toLongOrNull()?.takeIf { it >= 0 }
-    val triggerRadiusValue = triggerRadius.toIntOrNull()?.takeIf { it in 10..200 }
+    val triggerDelayValues = triggerDelays.map { it.toLongOrNull()?.takeIf { v -> v >= 0 } }
+    val triggerRadiusValues = triggerRadii.map { it.toIntOrNull()?.takeIf { v -> v in 10..200 } }
     val stepDelayValues = stepDelays.map { it.toLongOrNull()?.takeIf { v -> v >= MIN_DELAY_MS } }
     val valid = name.isNotBlank() &&
         (infinite || countValue != null) &&
         intervalValue != null &&
         pressValue != null &&
-        (scheme.triggers.isEmpty() || (triggerDelayValue != null && triggerRadiusValue != null)) &&
+        triggerDelayValues.all { it != null } &&
+        triggerRadiusValues.all { it != null } &&
         stepDelayValues.all { it != null }
 
     fun save() {
@@ -73,7 +76,9 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
             name = name.trim(),
             loop = LoopConfig(count = if (infinite) 0 else countValue!!, intervalMs = intervalValue!!),
             pressMs = pressValue!!,
-            triggers = scheme.triggers.map { it.copy(delayAfterMs = triggerDelayValue!!, radiusDp = triggerRadiusValue!!) },
+            triggers = scheme.triggers.mapIndexed { i, t ->
+                t.copy(delayAfterMs = triggerDelayValues[i]!!, radiusDp = triggerRadiusValues[i]!!)
+            },
             steps = scheme.steps.mapIndexed { i, step -> step.copy(delayBeforeMs = stepDelayValues[i]!!) },
             updatedAt = System.currentTimeMillis(),
         )
@@ -122,13 +127,18 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
             item { NumberField("轮间隔 (ms)", interval, intervalValue == null, "≥ 0") { interval = it } }
 
             if (scheme.triggers.isNotEmpty()) {
-                item { SectionTitle("触发点") }
-                item {
-                    NumberField("触发后延迟 (ms)", triggerDelay, triggerDelayValue == null, "≥ 0") { triggerDelay = it }
-                }
-                item {
-                    NumberField("触发区半径 (dp)", triggerRadius, triggerRadiusValue == null, "10–200") {
-                        triggerRadius = it
+                item { SectionTitle(if (scheme.triggers.size == 1) "触发点" else "触发点（点中任意一个开始）") }
+            }
+            itemsIndexed(scheme.triggers) { i, t ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (scheme.triggers.size > 1) {
+                        Text("${triggerLabel(i, scheme.triggers.size)} (${t.x}, ${t.y})", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    NumberField("触发后延迟 (ms)", triggerDelays[i], triggerDelayValues[i] == null, "≥ 0") {
+                        triggerDelays[i] = it
+                    }
+                    NumberField("触发区半径 (dp)", triggerRadii[i], triggerRadiusValues[i] == null, "10–200") {
+                        triggerRadii[i] = it
                     }
                 }
             }

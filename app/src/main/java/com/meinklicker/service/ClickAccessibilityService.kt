@@ -185,7 +185,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         val upAt = SystemClock.uptimeMillis()
         triggerZone.suspendTouch()
         replayIntercepted = false
-        runController.onTriggerTapped(
+        val started = runController.onTriggerTapped(
             index, x, y,
             beforeReplay = { triggerZone.awaitTouchReleased() },
             retryIf = {
@@ -200,6 +200,11 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             },
             onReplayed = { recordReplayLatency(x, y, SystemClock.uptimeMillis() - upAt) },
         )
+        // 没开始运行但仍在待命（触发点刚被改动）：状态不变不会刷新触发区，这里恢复成可触摸
+        val state = runController.state.value
+        if (!started && state is RunState.Armed) {
+            repository.get(state.schemeId)?.triggers?.takeIf { it.isNotEmpty() }?.let(triggerZone::show)
+        }
     }
 
     override fun onOpenMain() {

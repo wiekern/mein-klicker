@@ -236,7 +236,12 @@ class MarkerEditorOverlay(
             notify("最多 $MAX_TRIGGERS 个触发点")
             return
         }
-        val offset = overlays.dp(24) * triggers.size
+        // 从屏幕上方三分之一处开始逐个错开，跳过已被占用的位置（删掉中间的触发点后再加时）
+        val slot = (0 until MAX_TRIGGERS).first { k ->
+            val offset = overlays.dp(24) * k
+            triggers.none { it.x == screen.width / 2 + offset && it.y == screen.height / 3 + offset }
+        }
+        val offset = overlays.dp(24) * slot
         val marker = Marker(screen.width / 2 + offset, screen.height / 3 + offset, DEFAULT_DELAY_MS, true)
         triggers += marker
         overlays.add(marker.view, marker.params)

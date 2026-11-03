@@ -82,6 +82,17 @@ class SchemeRepositoryTest {
     }
 
     @Test
+    fun newTriggersWinOverLegacyField() {
+        file().writeText(
+            """{"version":1,"schemes":[{"id":"x","name":"n","screenWidth":1,"screenHeight":2,"updatedAt":3,
+               |"trigger":{"x":10,"y":20},"triggers":[{"x":7,"y":8},{"x":9,"y":9}]}]}""".trimMargin()
+        )
+        val s = SchemeRepository(file()).get("x")!!
+        assertEquals(listOf(TriggerConfig(7, 8), TriggerConfig(9, 9)), s.triggers)
+        assertNull(s.legacyTrigger)
+    }
+
+    @Test
     fun legacySingleTriggerIsMigrated() = runTest {
         file().writeText(
             """{"version":1,"schemes":[{"id":"old","name":"n","screenWidth":1,"screenHeight":2,"updatedAt":3,
