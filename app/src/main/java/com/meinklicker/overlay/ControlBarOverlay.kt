@@ -6,7 +6,9 @@ import android.graphics.Rect
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
+import android.view.WindowManager.LayoutParams
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.meinklicker.data.Scheme
 import com.meinklicker.engine.RunState
@@ -21,6 +23,9 @@ class ControlBarOverlay(
         fun onRun()
         fun onStop()
         fun onOpenMain()
+        fun onEdit()
+        fun onNewScheme()
+        fun onSelectScheme(id: String)
     }
 
     private val params = overlays.newParams(x = overlays.dp(8), y = overlays.screen.height / 4)
@@ -39,6 +44,7 @@ class ControlBarOverlay(
     }
     private val runButton = BarButton(context, "▶", buttonSize) { actions.onRun() }
     private val stopButton = BarButton(context, "■", buttonSize) { actions.onStop() }
+    private val editButton = BarButton(context, "✎", buttonSize) { actions.onEdit() }
     private val mainButton = BarButton(context, "≡", buttonSize) { actions.onOpenMain() }
 
     private val handle = TextView(context).apply {
@@ -61,9 +67,12 @@ class ControlBarOverlay(
             setPadding(overlays.dp(2), 0, overlays.dp(6), 0)
             addView(nameText)
             addView(statusText)
+            // 点方案名弹出方案列表
+            setOnClickListener { togglePicker() }
         })
         addView(runButton)
         addView(stopButton)
+        addView(editButton)
         addView(mainButton)
     }
 
@@ -87,14 +96,24 @@ class ControlBarOverlay(
         collapsed.setOnTouchListener(dragListener(onClick = { setCollapsed(false) }))
     }
 
+    private var state: RunState = RunState.Idle
+    private var schemes: List<Scheme> = emptyList()
+    private val picker = SchemePicker()
+
     val isShown: Boolean get() = overlays.isShown(root)
 
     fun show() = overlays.add(root, params)
 
-    fun hide() = overlays.remove(root)
+    fun hide() {
+        picker.dismiss()
+        overlays.remove(root)
+    }
 
-    fun render(state: RunState, scheme: Scheme?) {
-        nameText.text = scheme?.name ?: "未选择方案"
+    fun render(state: RunState, scheme: Scheme?, schemes: List<Scheme>) {
+        this.state = state
+        this.schemes = schemes
+        if (state != RunState.Idle) picker.dismiss() else picker.refresh()
+        nameText.text = (scheme?.name ?: "未选择方案") + " ▾"
         statusText.text = when (state) {
             RunState.Idle -> "空闲"
             is RunState.Armed -> "待命中"
@@ -106,6 +125,7 @@ class ControlBarOverlay(
         }
         runButton.isEnabled = state == RunState.Idle && !scheme?.steps.isNullOrEmpty()
         stopButton.isEnabled = state is RunState.Running
+        editButton.isEnabled = state == RunState.Idle
     }
 
     /** 悬浮栏在屏幕上的矩形（绝对像素），用于运行前的重叠检查。 */
@@ -116,7 +136,62 @@ class ControlBarOverlay(
         return Rect(loc[0], loc[1], loc[0] + root.width, loc[1] + root.height)
     }
 
+    private fun togglePicker() {
+        if (picker.isShown) picker.dismiss() else if (state == RunState.Idle) picker.show()
+    }
+
+    /** 方案列表：显示在悬浮栏下方，点一项切换，最后一项新建。只在空闲时可用。 */
+    private inner class SchemePicker {
+        private val pickerParams = overlays.newParams()
+        private val list = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        private val view = ScrollView(context).apply {
+            background = roundedBg(BAR_BG, overlays.dp(12).toFloat())
+            setPadding(overlays.dp(4), overlays.dp(4), overlays.dp(4), overlays.dp(4))
+            addView(list)
+        }
+
+        val isShown: Boolean get() = overlays.isShown(view)
+
+        fun show() {
+            refresh()
+            val bar = bounds() ?: return
+            val screen = overlays.screen
+            pickerParams.x = bar.left
+            pickerParams.height = LayoutParams.WRAP_CONTENT
+            val maxHeight = overlays.dp(320)
+            if (bar.bottom + maxHeight < screen.height) {
+                pickerParams.y = bar.bottom
+            } else {
+                pickerParams.y = (bar.top - maxHeight).coerceAtLeast(0)
+                pickerParams.height = maxHeight
+            }
+            overlays.add(view, pickerParams)
+        }
+
+        fun dismiss() = overlays.remove(view)
+
+        fun refresh() {
+            list.removeAllViews()
+            schemes.forEach { s ->
+                list.addView(item(s.name) { dismiss(); actions.onSelectScheme(s.id) })
+            }
+            list.addView(item("＋ 新建方案") { dismiss(); actions.onNewScheme() })
+        }
+
+        private fun item(label: String, onClick: () -> Unit) = TextView(context).apply {
+            text = label
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            minWidth = overlays.dp(180)
+            maxWidth = overlays.dp(260)
+            isSingleLine = true
+            setPadding(overlays.dp(12), overlays.dp(10), overlays.dp(12), overlays.dp(10))
+            setOnClickListener { onClick() }
+        }
+    }
+
     private fun setCollapsed(value: Boolean) {
+        if (value) picker.dismiss()
         expanded.visibility = if (value) View.GONE else View.VISIBLE
         collapsed.visibility = if (value) View.VISIBLE else View.GONE
     }
@@ -125,7 +200,11 @@ class ControlBarOverlay(
         var startX = 0
         var startY = 0
         return DragTouchListener(
-            onDragStart = { startX = params.x; startY = params.y },
+            onDragStart = {
+                picker.dismiss()
+                startX = params.x
+                startY = params.y
+            },
             onDrag = { dx, dy ->
                 val screen = overlays.screen
                 params.x = (startX + dx).coerceIn(0, (screen.width - root.width).coerceAtLeast(0))

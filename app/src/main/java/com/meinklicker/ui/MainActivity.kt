@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -22,13 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meinklicker.container
-import com.meinklicker.data.LoopConfig
-import com.meinklicker.data.Scheme
-import com.meinklicker.data.Step
-import com.meinklicker.util.ScreenInfo
 import com.meinklicker.util.SystemSettings
-import kotlinx.coroutines.launch
-import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,26 +52,5 @@ private fun ServiceStatus() {
             Text("显示悬浮栏", Modifier.weight(1f))
             Switch(checked = barEnabled, onCheckedChange = container::setControlBarEnabled)
         }
-        // TODO(T4): 编辑器完成后删除
-        OutlinedButton(onClick = {
-            val size = ScreenInfo.realSize(context)
-            val scheme = Scheme(
-                id = UUID.randomUUID().toString(),
-                name = "测试方案",
-                screenWidth = size.width,
-                screenHeight = size.height,
-                steps = listOf(
-                    Step(size.width / 4, size.height * 2 / 5, 500),
-                    Step(size.width / 2, size.height / 2, 500),
-                    Step(size.width * 3 / 4, size.height * 3 / 5, 500),
-                ),
-                loop = LoopConfig(count = 3, intervalMs = 1000),
-                updatedAt = System.currentTimeMillis(),
-            )
-            container.scope.launch {
-                container.repository.save(scheme)
-                container.selectScheme(scheme.id)
-            }
-        }) { Text("生成测试方案") }
     }
 }

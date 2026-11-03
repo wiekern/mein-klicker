@@ -8,9 +8,11 @@ import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
 import com.meinklicker.TAG
 import com.meinklicker.container
+import com.meinklicker.data.Scheme
 import com.meinklicker.engine.GestureDispatcher
 import com.meinklicker.engine.RunState
 import com.meinklicker.overlay.ControlBarOverlay
+import com.meinklicker.overlay.MarkerEditorOverlay
 import com.meinklicker.overlay.OverlayManager
 import com.meinklicker.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +30,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private var scope: CoroutineScope? = null
     private lateinit var overlays: OverlayManager
     private lateinit var controlBar: ControlBarOverlay
+    private var editor: MarkerEditorOverlay? = null
 
     /** 急停时吞掉的音量下键，对应的 UP 也要吞掉。 */
     private var swallowVolumeUp = false
@@ -44,12 +47,12 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         container.attachService(this)
 
         scope.launch {
-            container.controlBarEnabled.collect { if (it) controlBar.show() else controlBar.hide() }
+            container.controlBarEnabled.collect { refreshControlBarVisibility() }
         }
         scope.launch {
-            combine(runController.state, repository.schemes, container.selectedSchemeId) { state, _, id ->
-                state to id?.let(repository::get)
-            }.collect { (state, scheme) -> controlBar.render(state, scheme) }
+            combine(runController.state, repository.schemes, container.selectedSchemeId) { state, list, id ->
+                Triple(state, list.find { it.id == id }, list)
+            }.collect { (state, scheme, list) -> controlBar.render(state, scheme, list) }
         }
     }
 
@@ -87,6 +90,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         val scope = scope ?: return
         this.scope = null
         container.detachService(this)
+        editor = null
         overlays.removeAll()
         scope.cancel()
     }
@@ -117,6 +121,36 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     override fun onOpenMain() {
         startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    override fun onEdit() {
+        startEditor(container.selectedSchemeId.value?.let(repository::get))
+    }
+
+    override fun onNewScheme() = startEditor(null)
+
+    override fun onSelectScheme(id: String) = container.selectScheme(id)
+
+    /** 编辑期间隐藏悬浮栏，只显示标记和编辑栏。 */
+    private fun startEditor(scheme: Scheme?) {
+        if (editor != null || runController.state.value != RunState.Idle) return
+        val defaultName = "方案 ${repository.schemes.value.size + 1}"
+        editor = MarkerEditorOverlay(this, overlays, scheme, defaultName) { result ->
+            editor = null
+            if (result != null) {
+                scope?.launch {
+                    repository.save(result)
+                    container.selectScheme(result.id)
+                    toast("已保存「${result.name}」")
+                }
+            }
+            refreshControlBarVisibility()
+        }.also { it.show() }
+        refreshControlBarVisibility()
+    }
+
+    private fun refreshControlBarVisibility() {
+        if (container.controlBarEnabled.value && editor == null) controlBar.show() else controlBar.hide()
     }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
