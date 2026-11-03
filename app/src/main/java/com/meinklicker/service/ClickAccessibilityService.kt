@@ -236,18 +236,23 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         if (container.controlBarEnabled.value && editor == null) controlBar.show() else controlBar.hide()
     }
 
+    private val isDebuggable: Boolean
+        get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+
     /**
-     * 补发延迟打点。部分 ROM（vivo）会屏蔽应用日志，所以同时追加到 files/latency.log，
-     * 可用 `adb shell run-as com.meinklicker cat files/latency.log` 查看；debug 包还在屏幕上提示。
+     * 补发延迟打点。部分 ROM（vivo）会屏蔽应用日志，所以 debug 包同时追加到 files/latency.log
+     * （`adb shell run-as com.meinklicker cat files/latency.log`）并在屏幕上提示。
      */
     private fun recordReplayLatency(x: Int, y: Int, ms: Long) {
         val line = "${System.currentTimeMillis()} replay ($x, $y) ${ms}ms"
         Log.i(TAG, line)
         appendLatencyLog(line)
-        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) messages.show("补发延迟 $ms ms", 1200)
+        if (isDebuggable) messages.show("补发延迟 $ms ms", 1200)
     }
 
+    /** 只在 debug 包里写文件，release 包不留诊断文件。 */
     private fun appendLatencyLog(line: String) {
+        if (!isDebuggable) return
         runCatching { File(filesDir, "latency.log").appendText(line + "\n") }
     }
 
