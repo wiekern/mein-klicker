@@ -44,7 +44,7 @@ class SchemeRepository(
     private fun load(): List<Scheme> {
         if (!file.exists()) return emptyList()
         return try {
-            json.decodeFromString<SchemeFile>(file.readText()).schemes
+            json.decodeFromString<SchemeFile>(file.readText()).schemes.map { it.migrated() }
         } catch (e: Exception) {
             file.renameTo(File(file.parentFile, file.name + ".corrupt"))
             emptyList()

@@ -67,7 +67,7 @@ class MarkerEditorOverlay(
     private val handler = Handler(Looper.getMainLooper())
 
     private var trigger: Marker? = null
-    private var triggerRadiusDp = original?.trigger?.radiusDp ?: 40
+    private var triggerRadiusDp = original?.triggers?.firstOrNull()?.radiusDp ?: 40
     private val steps = mutableListOf<Marker>()
     private val lines = OrderLinesOverlay(context, overlays)
 
@@ -150,7 +150,7 @@ class MarkerEditorOverlay(
     }
 
     fun show() {
-        original?.trigger?.let { trigger = Marker(it.x, it.y, it.delayAfterMs, isTrigger = true) }
+        original?.triggers?.firstOrNull()?.let { trigger = Marker(it.x, it.y, it.delayAfterMs, isTrigger = true) }
         original?.steps?.forEach { steps += Marker(it.x, it.y, it.delayBeforeMs, isTrigger = false) }
         // 连线先添加，标记盖在线上面
         lines.show()
@@ -258,13 +258,13 @@ class MarkerEditorOverlay(
             notify("至少需要 1 个步骤")
             return
         }
-        val trigger = trigger?.let { TriggerConfig(it.x, it.y, triggerRadiusDp, it.delayMs) }
+        val triggers = listOfNotNull(trigger?.let { TriggerConfig(it.x, it.y, triggerRadiusDp, it.delayMs) })
         val steps = steps.map { Step(it.x, it.y, it.delayMs) }
         // 编辑已有方案时保留其他设置（循环、按压时长等）
         val scheme = original?.copy(
             screenWidth = screen.width,
             screenHeight = screen.height,
-            trigger = trigger,
+            triggers = triggers,
             steps = steps,
             updatedAt = System.currentTimeMillis(),
         ) ?: Scheme(
@@ -272,7 +272,7 @@ class MarkerEditorOverlay(
             name = defaultName,
             screenWidth = screen.width,
             screenHeight = screen.height,
-            trigger = trigger,
+            triggers = triggers,
             steps = steps,
             loop = LoopConfig(),
             updatedAt = System.currentTimeMillis(),

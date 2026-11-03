@@ -43,19 +43,20 @@ class RunController(
         return true
     }
 
-    /** 进入待命。方案必须有触发点。 */
+    /** 进入待命。方案至少要有一个触发点。 */
     fun arm(schemeId: String): Boolean {
         if (_state.value != RunState.Idle) return false
-        if (lookup(schemeId)?.trigger == null) return false
+        if (lookup(schemeId)?.triggers.isNullOrEmpty()) return false
         _state.value = RunState.Armed(schemeId)
         return true
     }
 
     /**
-     * 用户点了触发区。[beforeReplay] 由调用方提供，用来确保触发区已不再拦截触摸（例如等待一帧），
-     * 之后才补发点击；[retryIf] 判断补发是否需要重发；补发完成时回调 [onReplayed]。
+     * 用户点了第 [index] 个触发区。[beforeReplay] 由调用方提供，用来确保触发区已不再拦截触摸
+     * （例如等待一帧），之后才补发点击；[retryIf] 判断补发是否需要重发；补发完成时回调 [onReplayed]。
      */
     fun onTriggerTapped(
+        index: Int,
         x: Int,
         y: Int,
         beforeReplay: suspend () -> Unit = {},
@@ -64,11 +65,12 @@ class RunController(
     ): Boolean {
         val armed = _state.value as? RunState.Armed ?: return false
         val scheme = lookup(armed.schemeId)
-        val trigger = scheme?.trigger
-        if (trigger == null) {
+        if (scheme == null || scheme.triggers.isEmpty()) {
             _state.value = RunState.Idle
             return false
         }
+        // 待命中方案被编辑、触发区还没刷新：忽略这次点击，继续待命
+        val trigger = scheme.triggers.getOrNull(index) ?: return false
         start(scheme, fromTrigger = true) {
             beforeReplay()
             engine.replayTrigger(x, y, trigger, scheme.pressMs, retryIf = retryIf, onReplayed = onReplayed)

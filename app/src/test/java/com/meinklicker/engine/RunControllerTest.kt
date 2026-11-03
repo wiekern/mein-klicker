@@ -19,6 +19,7 @@ import org.junit.Test
 class RunControllerTest {
 
     private val trigger = TriggerConfig(x = 540, y = 1800, delayAfterMs = 100)
+    private val trigger2 = TriggerConfig(x = 100, y = 300, delayAfterMs = 500)
     private val schemes = mutableMapOf(
         "direct" to Scheme(
             id = "direct", name = "d", screenWidth = 1080, screenHeight = 2400,
@@ -26,7 +27,7 @@ class RunControllerTest {
             updatedAt = 0,
         ),
         "trig" to Scheme(
-            id = "trig", name = "t", screenWidth = 1080, screenHeight = 2400, trigger = trigger,
+            id = "trig", name = "t", screenWidth = 1080, screenHeight = 2400, triggers = listOf(trigger, trigger2),
             steps = listOf(Step(1, 1, 100), Step(2, 2, 100)), loop = LoopConfig(count = 3),
             updatedAt = 0,
         ),
@@ -72,7 +73,7 @@ class RunControllerTest {
         assertEquals(RunState.Armed("trig"), rc.state.value)
 
         var prepared = false
-        assertTrue(rc.onTriggerTapped(530, 1810) { prepared = true })
+        assertTrue(rc.onTriggerTapped(0, 530, 1810) { prepared = true })
         settle()
 
         assertTrue(prepared)
@@ -86,10 +87,43 @@ class RunControllerTest {
         assertEquals(RunState.Armed("trig"), rc.state.value)
 
         // 回到待命后可以再次触发
-        assertTrue(rc.onTriggerTapped(540, 1800))
+        assertTrue(rc.onTriggerTapped(0, 540, 1800))
         settle()
         assertEquals(14, fake.taps.size)
         assertEquals(RunState.Armed("trig"), rc.state.value)
+    }
+
+    @Test
+    fun anyTriggerStartsRunWithItsOwnDelay() = runTest {
+        val (rc, fake) = setup()
+        rc.arm("trig")
+        assertTrue(rc.onTriggerTapped(1, 110, 290))
+        settle()
+
+        assertEquals(FakeGestureDispatcher.Tap(110, 290, 0), fake.taps.first())
+        // 第 2 个触发点的 delayAfterMs（500）+ 第一步的 delayBeforeMs（100）
+        assertEquals(600L, fake.taps[1].atMs)
+        assertEquals(1 + 6, fake.taps.size)
+        assertEquals(RunState.Armed("trig"), rc.state.value)
+    }
+
+    @Test
+    fun triggerIndexOutOfRangeIsIgnoredAndStaysArmed() = runTest {
+        val (rc, fake) = setup()
+        rc.arm("trig")
+        assertFalse(rc.onTriggerTapped(2, 0, 0))
+        settle()
+        assertTrue(fake.taps.isEmpty())
+        assertEquals(RunState.Armed("trig"), rc.state.value)
+    }
+
+    @Test
+    fun triggerTapWhenSchemeLostTriggersGoesIdle() = runTest {
+        val (rc, _) = setup()
+        rc.arm("trig")
+        schemes["trig"] = schemes.getValue("trig").copy(triggers = emptyList())
+        assertFalse(rc.onTriggerTapped(0, 540, 1800))
+        assertEquals(RunState.Idle, rc.state.value)
     }
 
     @Test
@@ -105,7 +139,7 @@ class RunControllerTest {
     @Test
     fun triggerTapIgnoredWhenNotArmed() = runTest {
         val (rc, fake) = setup()
-        assertFalse(rc.onTriggerTapped(0, 0))
+        assertFalse(rc.onTriggerTapped(0, 0, 0))
         settle()
         assertTrue(fake.taps.isEmpty())
     }
@@ -115,7 +149,7 @@ class RunControllerTest {
         val (rc, fake) = setup()
         schemes["trig"] = schemes.getValue("trig").copy(loop = LoopConfig(count = 0))
         rc.arm("trig")
-        rc.onTriggerTapped(540, 1800)
+        rc.onTriggerTapped(0, 540, 1800)
         advanceTimeBy(5_000)
         runCurrent()
         rc.stop()
@@ -146,7 +180,7 @@ class RunControllerTest {
     fun disarmFromRunningGoesIdle() = runTest {
         val (rc, fake) = setup()
         rc.arm("trig")
-        rc.onTriggerTapped(540, 1800)
+        rc.onTriggerTapped(0, 540, 1800)
         advanceTimeBy(150)
         rc.disarm()
         settle()

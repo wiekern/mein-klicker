@@ -51,8 +51,8 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var interval by remember(scheme.id) { mutableStateOf("${scheme.loop.intervalMs}") }
     var press by remember(scheme.id) { mutableStateOf("${scheme.pressMs}") }
     var showPressTips by remember { mutableStateOf(false) }
-    var triggerDelay by remember(scheme.id, scheme.trigger) { mutableStateOf("${scheme.trigger?.delayAfterMs ?: ""}") }
-    var triggerRadius by remember(scheme.id, scheme.trigger) { mutableStateOf("${scheme.trigger?.radiusDp ?: ""}") }
+    var triggerDelay by remember(scheme.id, scheme.triggers) { mutableStateOf("${scheme.triggers.firstOrNull()?.delayAfterMs ?: ""}") }
+    var triggerRadius by remember(scheme.id, scheme.triggers) { mutableStateOf("${scheme.triggers.firstOrNull()?.radiusDp ?: ""}") }
     val stepDelays = remember(scheme.id, scheme.steps) { mutableStateListOf(*scheme.steps.map { "${it.delayBeforeMs}" }.toTypedArray()) }
 
     val countValue = count.toIntOrNull()?.takeIf { it >= 1 }
@@ -65,7 +65,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
         (infinite || countValue != null) &&
         intervalValue != null &&
         pressValue != null &&
-        (scheme.trigger == null || (triggerDelayValue != null && triggerRadiusValue != null)) &&
+        (scheme.triggers.isEmpty() || (triggerDelayValue != null && triggerRadiusValue != null)) &&
         stepDelayValues.all { it != null }
 
     fun save() {
@@ -73,7 +73,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
             name = name.trim(),
             loop = LoopConfig(count = if (infinite) 0 else countValue!!, intervalMs = intervalValue!!),
             pressMs = pressValue!!,
-            trigger = scheme.trigger?.copy(delayAfterMs = triggerDelayValue!!, radiusDp = triggerRadiusValue!!),
+            triggers = scheme.triggers.map { it.copy(delayAfterMs = triggerDelayValue!!, radiusDp = triggerRadiusValue!!) },
             steps = scheme.steps.mapIndexed { i, step -> step.copy(delayBeforeMs = stepDelayValues[i]!!) },
             updatedAt = System.currentTimeMillis(),
         )
@@ -121,7 +121,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
             }
             item { NumberField("轮间隔 (ms)", interval, intervalValue == null, "≥ 0") { interval = it } }
 
-            if (scheme.trigger != null) {
+            if (scheme.triggers.isNotEmpty()) {
                 item { SectionTitle("触发点") }
                 item {
                     NumberField("触发后延迟 (ms)", triggerDelay, triggerDelayValue == null, "≥ 0") { triggerDelay = it }

@@ -1,5 +1,6 @@
 package com.meinklicker.data
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /** 坐标一律为屏幕绝对像素，与 dispatchGesture 的坐标系一致。 */
@@ -10,7 +11,10 @@ data class Scheme(
     /** 创建时的真实屏幕像素，运行时不一致则提示。 */
     val screenWidth: Int,
     val screenHeight: Int,
-    val trigger: TriggerConfig? = null,
+    /** 点中任意一个都开始运行；最多 [MAX_TRIGGERS] 个。 */
+    val triggers: List<TriggerConfig> = emptyList(),
+    /** 旧版本的单个触发点，只在读取旧文件时出现；加载时迁移到 [triggers]。 */
+    @SerialName("trigger") val legacyTrigger: TriggerConfig? = null,
     val steps: List<Step> = emptyList(),
     val loop: LoopConfig = LoopConfig(),
     /** 每次点击的按压时长，步骤和触发补发共用。旧文件没有该字段时取默认值。 */
@@ -45,6 +49,14 @@ const val DEFAULT_PRESS_MS = 30L
 const val MIN_PRESS_MS = 10L
 /** 低于系统长按阈值（约 400 ms），避免被识别为长按。 */
 const val MAX_PRESS_MS = 300L
+const val MAX_TRIGGERS = 5
+
+/** 把旧版本的单个触发点迁移到 [Scheme.triggers]。 */
+internal fun Scheme.migrated(): Scheme = when {
+    legacyTrigger == null -> this
+    triggers.isEmpty() -> copy(triggers = listOf(legacyTrigger), legacyTrigger = null)
+    else -> copy(legacyTrigger = null)
+}
 
 /** schemes.json 的顶层结构，version 为以后的格式升级预留。 */
 @Serializable

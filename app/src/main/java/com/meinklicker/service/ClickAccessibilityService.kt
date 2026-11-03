@@ -86,7 +86,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             combine(runController.state, repository.schemes) { state, _ -> state }.collect { state ->
                 when (state) {
                     is RunState.Armed -> {
-                        val trigger = repository.get(state.schemeId)?.trigger
+                        val trigger = repository.get(state.schemeId)?.triggers?.firstOrNull()
                         if (trigger != null) triggerZone.show(trigger) else runController.disarm()
                     }
                     is RunState.Running -> if (state.fromTrigger) triggerZone.suspendTouch() else triggerZone.hide()
@@ -129,13 +129,14 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     override fun onArm() {
         val scheme = checkedSelectedScheme() ?: return
-        if (scheme.trigger == null) {
+        val trigger = scheme.triggers.firstOrNull()
+        if (trigger == null) {
             toast("该方案没有触发点，请先在编辑中添加")
             return
         }
         controlBar.bounds()?.let { bar ->
-            val r = overlays.dp(scheme.trigger.radiusDp)
-            val t = scheme.trigger
+            val r = overlays.dp(trigger.radiusDp)
+            val t = trigger
             if (Rect.intersects(bar, Rect(t.x - r, t.y - r, t.x + r, t.y + r))) {
                 toast("触发区与悬浮栏重叠，请先把悬浮栏拖开")
                 return
@@ -181,7 +182,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         triggerZone.suspendTouch()
         replayIntercepted = false
         runController.onTriggerTapped(
-            x, y,
+            0, x, y,
             beforeReplay = { triggerZone.awaitTouchReleased() },
             retryIf = {
                 if (replayIntercepted) {

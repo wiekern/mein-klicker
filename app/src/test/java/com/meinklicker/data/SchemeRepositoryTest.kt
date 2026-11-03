@@ -18,7 +18,7 @@ class SchemeRepositoryTest {
 
     private val sample = Scheme(
         id = "a", name = "测试", screenWidth = 1080, screenHeight = 2400,
-        trigger = TriggerConfig(540, 1800),
+        triggers = listOf(TriggerConfig(540, 1800), TriggerConfig(100, 200, radiusDp = 60, delayAfterMs = 300)),
         steps = listOf(Step(200, 300), Step(900, 2100, 150)),
         loop = LoopConfig(count = 5, intervalMs = 20),
         updatedAt = 123,
@@ -35,7 +35,7 @@ class SchemeRepositoryTest {
     fun saveAndReloadRoundTrip() = runTest {
         val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
         repo.save(sample)
-        repo.save(sample.copy(id = "b", trigger = null, steps = emptyList()))
+        repo.save(sample.copy(id = "b", triggers = emptyList(), steps = emptyList()))
 
         val reloaded = SchemeRepository(file())
         assertEquals(repo.schemes.value, reloaded.schemes.value)
@@ -78,6 +78,24 @@ class SchemeRepositoryTest {
         val s = SchemeRepository(file()).get("x")!!
         assertEquals(LoopConfig(), s.loop)
         assertEquals(DEFAULT_PRESS_MS, s.pressMs)
-        assertNull(s.trigger)
+        assertTrue(s.triggers.isEmpty())
+    }
+
+    @Test
+    fun legacySingleTriggerIsMigrated() = runTest {
+        file().writeText(
+            """{"version":1,"schemes":[{"id":"old","name":"n","screenWidth":1,"screenHeight":2,"updatedAt":3,
+               |"trigger":{"x":10,"y":20,"radiusDp":50,"delayAfterMs":200},"steps":[{"x":1,"y":1}]}]}""".trimMargin()
+        )
+        val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
+        val s = repo.get("old")!!
+        assertEquals(listOf(TriggerConfig(10, 20, radiusDp = 50, delayAfterMs = 200)), s.triggers)
+        assertNull(s.legacyTrigger)
+
+        // 保存后只剩新格式，重新读取结果不变
+        repo.save(s.copy(name = "m"))
+        val reloaded = SchemeRepository(file()).get("old")!!
+        assertEquals(s.triggers, reloaded.triggers)
+        assertNull(reloaded.legacyTrigger)
     }
 }

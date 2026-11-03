@@ -254,7 +254,7 @@ private fun SchemeCard(
 
 private fun Scheme.summary(): String {
     val loopText = if (loop.infinite) "无限循环" else "循环 ${loop.count} 次"
-    val triggerText = if (trigger != null) "有触发点" else "无触发点"
+    val triggerText = if (triggers.isNotEmpty()) "${triggers.size} 个触发点" else "无触发点"
     val time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(updatedAt))
     val pressText = if (pressMs != DEFAULT_PRESS_MS) " · 按压 $pressMs ms" else ""
     return "${steps.size} 步 · $triggerText · $loopText$pressText · $time"

@@ -133,7 +133,7 @@ class ControlBarOverlay(
         runButton.isEnabled = state == RunState.Idle && !scheme?.steps.isNullOrEmpty()
         val armed = state is RunState.Armed || (state is RunState.Running && state.fromTrigger)
         armButton.background = if (armed) circleBg(TRIGGER_COLOR) else null
-        armButton.isEnabled = armed || (state == RunState.Idle && scheme?.trigger != null)
+        armButton.isEnabled = armed || (state == RunState.Idle && !scheme?.triggers.isNullOrEmpty())
         stopButton.isEnabled = state is RunState.Running
         editButton.isEnabled = state == RunState.Idle
         pickButton.isEnabled = state == RunState.Idle
