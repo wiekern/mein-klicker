@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-MeinKlicker is a personal-use Android auto-clicker (no ads, no network permission, not published; sideloaded via `adb install -r`). The Android project has **not been scaffolded yet** — only specs exist. Read these before implementing:
+MeinKlicker is a personal-use Android auto-clicker (no ads, no network permission, not published; sideloaded via `adb install -r`). The Android project is being implemented task by task. Read these before changing code:
 
 - `specs/261103-auto-clicker-mvp/prd.md` — requirements (Chinese)
 - `specs/261103-auto-clicker-mvp/tech-design.md` — architecture, versions, module design. Where it conflicts with the PRD, the tech design wins.
