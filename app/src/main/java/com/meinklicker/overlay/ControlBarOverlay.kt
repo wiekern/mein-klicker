@@ -21,6 +21,8 @@ class ControlBarOverlay(
 ) {
     interface Actions {
         fun onRun()
+        fun onArm()
+        fun onDisarm()
         fun onStop()
         fun onOpenMain()
         fun onEdit()
@@ -43,6 +45,9 @@ class ControlBarOverlay(
         isSingleLine = true
     }
     private val runButton = BarButton(context, "▶", buttonSize) { actions.onRun() }
+    private val armButton = BarButton(context, "⚡", buttonSize) {
+        if (state == RunState.Idle) actions.onArm() else actions.onDisarm()
+    }
     private val stopButton = BarButton(context, "■", buttonSize) { actions.onStop() }
     private val editButton = BarButton(context, "✎", buttonSize) { actions.onEdit() }
     private val mainButton = BarButton(context, "≡", buttonSize) { actions.onOpenMain() }
@@ -71,6 +76,7 @@ class ControlBarOverlay(
             setOnClickListener { togglePicker() }
         })
         addView(runButton)
+        addView(armButton)
         addView(stopButton)
         addView(editButton)
         addView(mainButton)
@@ -124,6 +130,9 @@ class ControlBarOverlay(
             }
         }
         runButton.isEnabled = state == RunState.Idle && !scheme?.steps.isNullOrEmpty()
+        val armed = state is RunState.Armed || (state is RunState.Running && state.fromTrigger)
+        armButton.text = if (armed) "✕" else "⚡"
+        armButton.isEnabled = armed || (state == RunState.Idle && scheme?.trigger != null)
         stopButton.isEnabled = state is RunState.Running
         editButton.isEnabled = state == RunState.Idle
     }

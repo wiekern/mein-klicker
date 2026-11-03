@@ -53,9 +53,14 @@ class RunController(
 
     /**
      * 用户点了触发区。[beforeReplay] 由调用方提供，用来确保触发区已不再拦截触摸（例如等待一帧），
-     * 之后才补发点击。
+     * 之后才补发点击；补发的手势完成时回调 [onReplayed]。
      */
-    fun onTriggerTapped(x: Int, y: Int, beforeReplay: suspend () -> Unit = {}): Boolean {
+    fun onTriggerTapped(
+        x: Int,
+        y: Int,
+        beforeReplay: suspend () -> Unit = {},
+        onReplayed: () -> Unit = {},
+    ): Boolean {
         val armed = _state.value as? RunState.Armed ?: return false
         val scheme = lookup(armed.schemeId)
         val trigger = scheme?.trigger
@@ -65,7 +70,7 @@ class RunController(
         }
         start(scheme, fromTrigger = true) {
             beforeReplay()
-            engine.replayTrigger(x, y, trigger)
+            engine.replayTrigger(x, y, trigger, onReplayed)
             engine.runLoop(scheme, progress(scheme, true))
         }
         return true

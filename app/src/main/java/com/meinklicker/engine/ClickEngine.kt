@@ -32,8 +32,9 @@ class ClickEngine(private val gestures: GestureDispatcher) {
     }
 
     /** 触发模式：在用户实际点击的坐标补发一次单击，然后等待 delayAfterMs。 */
-    suspend fun replayTrigger(x: Int, y: Int, trigger: TriggerConfig) {
+    suspend fun replayTrigger(x: Int, y: Int, trigger: TriggerConfig, onReplayed: () -> Unit = {}) {
         gestures.tap(x, y)
+        onReplayed()
         delay(trigger.delayAfterMs)
     }
 }
