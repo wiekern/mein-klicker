@@ -1,8 +1,8 @@
 # MeinKlicker
 
-一个简单的 Android 自动点击器：按顺序自动点击、保存点击方案，还支持"亲手点第一下、后面自动完成"的手动触发模式。通过 `adb install` 侧载安装。
+一个简单的 Android 自动点击器：按顺序自动点击、保存点击方案，还支持"亲手点第一下、后面自动完成"的手动触发模式。
 
-## MVP 功能
+## 功能
 
 - 按顺序自动点击多个位置，支持步骤间隔和循环
 - 保存 / 管理点击方案（拖动悬浮标记设置位置）
@@ -10,43 +10,13 @@
 
 只需要开启**无障碍服务**这一项权限；悬浮窗由无障碍服务托管，不需要单独的悬浮窗权限。
 
-## 编译
+## 下载安装
 
-需要 JDK 17 和 Android SDK（compileSdk 34）。Android Studio Iguana 及以上可以直接打开项目根目录，等 Gradle Sync 完成后点 *Build → Build APK(s)*。
+1. 在 [Releases](https://github.com/wiekern/mein-klicker/releases) 页面下载最新的 `MeinKlicker-vX.Y.Z.apk` 到手机；
+2. 在手机上点开 APK 安装。第一次安装时，系统会提示是否允许浏览器 / 文件管理器"安装未知应用"，选择允许；
+3. **Android 13 及以上**：这样安装的应用默认不能开启无障碍服务（"受限制的设置"）。开启前先到 **设置 → 应用 → MeinKlicker → 右上角 ⋮ → 允许受限制的设置**。如果菜单里没有这一项，先去无障碍设置里尝试开启一次，被系统拦下后再回来就会出现；不同手机的菜单位置可能略有不同。
 
-命令行：
-
-```bash
-# 1. 在项目根目录写 local.properties，指向本机 Android SDK（Windows 路径用正斜杠）
-echo "sdk.dir=/path/to/Android/Sdk" > local.properties
-
-# 2. 使用 JDK 17，例如 Android Studio 自带的 JBR
-export JAVA_HOME="/path/to/Android Studio/jbr"
-
-# 3. 编译 / 测试
-./gradlew assembleDebug          # 产物：app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest
-```
-
-首次编译会从 Google / Maven Central 下载依赖。
-
-发布签名（可选）：在 `local.properties` 加一行 `release.signing=/path/to/release.properties`，该文件写上 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`，然后 `./gradlew assembleRelease`。没配置时 release 包不签名。密钥和密码不要放进仓库。
-
-## 安装到手机
-
-1. 手机：设置 → 关于手机 → 连续点"版本号"打开开发者选项；
-2. 开发者选项里打开 **USB 调试**。ColorOS 上还要打开"**禁止权限监控**"，否则 `adb install` 可能被拦截；
-3. 用数据线连电脑，在手机上允许 USB 调试授权，然后：
-
-```bash
-adb devices                                              # 能看到设备
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb logcat -s MeinKlicker                                # 查看日志
-```
-
-用 `adb install` 安装不受 Android 13+"受限制的设置"影响；如果是用文件管理器装的 APK，开启无障碍前要先到"应用信息 → ⋮ → 允许受限制的设置"。
-
-注意：每台电脑的 debug 签名不同，换电脑编译后覆盖安装会失败，需要先卸载旧版本（方案数据会一起删除）。
+需要 Android 8.0 及以上。
 
 ## 首次设置
 
@@ -57,7 +27,7 @@ adb logcat -s MeinKlicker                                # 查看日志
 3. **自启动 / 后台运行** → 去设置 → 允许 MeinKlicker 自启动、后台运行；
 4. 在最近任务里把 MeinKlicker 下拉**锁定**。
 
-**OriginOS 7 首批内测版注意**：在无障碍服务详情页打开或关闭开关后，按返回离开时服务的开 / 关状态可能不对，请用 **Home 手势（从底部上滑）** 离开，并以 MeinKlicker 主界面显示的状态为准。也可以用电脑执行：
+**OriginOS 7 首批内测版注意**：在无障碍服务详情页打开或关闭开关后，按返回离开时服务的开 / 关状态可能不对，请用 **Home 手势（从底部上滑）** 离开，并以 MeinKlicker 主界面显示的状态为准。也可以用电脑（adb）执行：
 
 ```bash
 adb shell settings put secure enabled_accessibility_services com.meinklicker/com.meinklicker.service.ClickAccessibilityService
@@ -105,6 +75,44 @@ ColorOS / OriginOS 清理后台时可能关闭无障碍服务。如果悬浮栏�
 4. 执行完（或点 ■ 停止）后自动回到待命，可以再次触发；点 ✕ 退出待命。
 
 触发点不计入循环：循环 3 次时，触发点只点 1 次，后续步骤执行 3 轮。补发会比直接点击多几十毫秒的延迟。
+
+## 从源码编译
+
+需要 JDK 17 和 Android SDK（compileSdk 34）。Android Studio Iguana 及以上可以直接打开项目根目录，等 Gradle Sync 完成后点 *Build → Build APK(s)*。
+
+命令行：
+
+```bash
+# 1. 在项目根目录写 local.properties，指向本机 Android SDK（Windows 路径用正斜杠）
+echo "sdk.dir=/path/to/Android/Sdk" > local.properties
+
+# 2. 使用 JDK 17，例如 Android Studio 自带的 JBR
+export JAVA_HOME="/path/to/Android Studio/jbr"
+
+# 3. 编译 / 测试
+./gradlew assembleDebug          # 产物：app/build/outputs/apk/debug/app-debug.apk
+./gradlew testDebugUnitTest
+```
+
+首次编译会从 Google / Maven Central 下载依赖。
+
+发布签名（可选）：在 `local.properties` 加一行 `release.signing=/path/to/release.properties`，该文件写上 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`，然后 `./gradlew assembleRelease`。没配置时 release 包不签名。密钥和密码不要放进仓库。
+
+### 用 adb 安装
+
+1. 手机：设置 → 关于手机 → 连续点"版本号"打开开发者选项；
+2. 开发者选项里打开 **USB 调试**。ColorOS 上还要打开"**禁止权限监控**"，否则 `adb install` 可能被拦截；
+3. 用数据线连电脑，在手机上允许 USB 调试授权，然后：
+
+```bash
+adb devices                                              # 能看到设备
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb logcat -s MeinKlicker                                # 查看日志
+```
+
+用 adb 安装不受"受限制的设置"影响。
+
+注意：debug 包和 release 包、以及不同电脑编译的 debug 包签名都不同，相互覆盖安装会失败，需要先卸载旧版本（方案数据会一起删除）。
 
 ## 工作原理
 

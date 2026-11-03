@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-MeinKlicker is an Android auto-clicker: ordered taps with delays and loops, saved schemes positioned by dragging floating markers, and a "manual trigger" mode where the user taps the first point themselves and the app replays that tap to the app underneath, then runs the remaining steps. Sideloaded via `adb install -r`. UI text and docs are in Chinese.
+MeinKlicker is an Android auto-clicker: ordered taps with delays and loops, saved schemes positioned by dragging floating markers, and a "manual trigger" mode where the user taps the first point themselves and the app replays that tap to the app underneath, then runs the remaining steps. Distributed as a signed APK on GitHub Releases (users tap-to-install); developers install with `adb install -r`. UI text and docs are in Chinese.
 
 Maintainers may keep private notes in `CLAUDE.local.md` (gitignored); read it if present.
 
