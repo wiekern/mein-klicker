@@ -6,7 +6,6 @@ import android.content.pm.ApplicationInfo
 import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
-import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import com.meinklicker.TAG
 import com.meinklicker.container
@@ -45,9 +44,6 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     /** 补发的点击被触发区自己接住了（FLAG_NOT_TOUCHABLE 尚未生效），需要重发。 */
     private var replayIntercepted = false
-
-    /** 急停时吞掉的音量下键，对应的 UP 也要吞掉。 */
-    private var swallowVolumeUp = false
 
     private val runController get() = container.runController
     private val repository get() = container.repository
@@ -103,21 +99,6 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     override fun onInterrupt() = Unit
-
-    override fun onKeyEvent(event: KeyEvent): Boolean {
-        if (event.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
-        if (event.action == KeyEvent.ACTION_DOWN && runController.state.value is RunState.Running) {
-            Log.i(TAG, "emergency stop by volume key")
-            runController.stop()
-            swallowVolumeUp = true
-            return true
-        }
-        if (event.action == KeyEvent.ACTION_UP && swallowVolumeUp) {
-            swallowVolumeUp = false
-            return true
-        }
-        return false
-    }
 
     override fun onUnbind(intent: Intent?): Boolean {
         teardown()
