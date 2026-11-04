@@ -12,7 +12,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meinklicker.container
 import com.meinklicker.ui.theme.MeinKlickerTheme
 
-/** 两个页面用状态切换：方案列表 ↔ 方案设置。 */
+/** 首页、方案设置和关于页通过可保存的状态切换。 */
 class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
@@ -30,13 +30,20 @@ class MainActivity : ComponentActivity() {
         setContent {
             MeinKlickerTheme {
                 var openId by rememberSaveable { mutableStateOf<String?>(null) }
+                var aboutOpen by rememberSaveable { mutableStateOf(false) }
                 val schemes by repository.schemes.collectAsStateWithLifecycle()
                 val open = openId?.let { id -> schemes.find { it.id == id } }
-                if (open != null) {
+                if (aboutOpen) {
+                    BackHandler { aboutOpen = false }
+                    AboutScreen(onBack = { aboutOpen = false })
+                } else if (open != null) {
                     BackHandler { openId = null }
                     SchemeDetailScreen(open, onBack = { openId = null })
                 } else {
-                    HomeScreen(onOpenScheme = { openId = it })
+                    HomeScreen(
+                        onOpenScheme = { openId = it },
+                        onOpenAbout = { aboutOpen = true },
+                    )
                 }
             }
         }

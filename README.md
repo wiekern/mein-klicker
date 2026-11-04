@@ -67,6 +67,12 @@ ColorOS / OriginOS 清理后台时可能关闭无障碍服务。如果悬浮栏�
 
 所有触发点共用同一组步骤，触发后延迟用被点中的那个触发点的设置。触发点不计入循环：循环 3 次时，触发点只点 1 次，后续步骤执行 3 轮。补发会比直接点击多几十毫秒的延迟。
 
+## 关于与反馈
+
+在首页右上角点「关于」，可以查看当前版本、开发者、源码仓库和 MIT 开源许可；点击版本号可以复制。
+
+遇到问题或有功能建议，可在关于页点「问题与建议」前往 [GitHub Issues](https://github.com/wiekern/mein-klicker/issues)，先查看已有反馈，再提交问题或建议。
+
 ## 从源码编译
 
 需要 JDK 17 和 Android SDK（compileSdk 34）。Android Studio Iguana 及以上可以直接打开项目根目录，等 Gradle Sync 完成后点 *Build → Build APK(s)*。

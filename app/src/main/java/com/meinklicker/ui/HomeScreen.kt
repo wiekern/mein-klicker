@@ -53,7 +53,7 @@ import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onOpenScheme: (String) -> Unit) {
+fun HomeScreen(onOpenScheme: (String) -> Unit, onOpenAbout: () -> Unit) {
     val context = LocalContext.current
     val container = context.container
     val schemes by container.repository.schemes.collectAsStateWithLifecycle()
@@ -61,7 +61,12 @@ fun HomeScreen(onOpenScheme: (String) -> Unit) {
     var renaming by remember { mutableStateOf<Scheme?>(null) }
     var deleting by remember { mutableStateOf<Scheme?>(null) }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("MeinKlicker") }) }) { padding ->
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text("MeinKlicker") },
+            actions = { TextButton(onClick = onOpenAbout) { Text("关于") } },
+        )
+    }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
