@@ -6,9 +6,11 @@ import android.graphics.Point
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.meinklicker.data.DEFAULT_DELAY_MS
+import com.meinklicker.data.DEFAULT_PRESS_MS
 import com.meinklicker.data.DEFAULT_TRIGGER_RADIUS_DP
 import com.meinklicker.data.LoopConfig
 import com.meinklicker.data.MAX_TRIGGERS
@@ -18,6 +20,12 @@ import com.meinklicker.data.Step
 import com.meinklicker.data.TriggerConfig
 import com.meinklicker.data.triggerLabel
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * 在目标应用界面上拖动标记设置位置。每个标记一个独立的小窗口，
@@ -29,6 +37,7 @@ class MarkerEditorOverlay(
     private val original: Scheme?,
     private val defaultName: String,
     private val notify: (String) -> Unit,
+    private val onPreviewTap: suspend (x: Int, y: Int, pressMs: Long) -> Boolean,
     /** 保存时传入新方案，取消时传 null。 */
     private val onFinish: (Scheme?) -> Unit,
 ) {
@@ -70,11 +79,14 @@ class MarkerEditorOverlay(
         }
     }
 
-    private val markerSize = overlays.dp(48)
+    private val markerSize = overlays.dp(32)
     private val buttonSize = overlays.dp(40)
     private val captionWidth = overlays.dp(52)
     private val screen = overlays.screen
     private val handler = Handler(Looper.getMainLooper())
+    private val previewScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var previewing = false
+    private var dismissed = false
 
     private val triggers = mutableListOf<Marker>()
     private val steps = mutableListOf<Marker>()
@@ -146,6 +158,10 @@ class MarkerEditorOverlay(
         })
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
+            addView(BarButton(context, "点击一次", buttonSize) { panelMarker?.let(::previewTap) }.apply {
+                textSize = 15f
+                minWidth = overlays.dp(80)
+            })
             addView(BarButton(context, "删除", buttonSize) { panelMarker?.let(::deleteMarker) }.apply {
                 setTextColor(0xFFEF9A9A.toInt())
                 textSize = 15f
@@ -170,6 +186,8 @@ class MarkerEditorOverlay(
     }
 
     fun dismiss() {
+        dismissed = true
+        previewScope.cancel()
         handler.removeCallbacks(disarmClear)
         closePanel()
         triggers.forEach { overlays.remove(it.view) }
@@ -315,6 +333,39 @@ class MarkerEditorOverlay(
             (marker.y - markerSize - overlays.dp(280)).coerceAtLeast(0)
         }
         if (overlays.isShown(panel)) overlays.update(panel, panelParams) else overlays.add(panel, panelParams)
+    }
+
+    /** 编辑时只点击当前标记一次，方便进入下一步所需界面；不执行循环或后续步骤。 */
+    private fun previewTap(marker: Marker) {
+        if (previewing || dismissed) return
+        previewing = true
+        val x = marker.x
+        val y = marker.y
+        closePanel()
+        // 其他标记和编辑栏也可能盖住目标，一起让出触摸区域。
+        val windows = (triggers + steps).map { it.view to it.params } + (bar to barParams)
+        windows.forEach { (view, params) ->
+            view.visibility = View.INVISIBLE
+            overlays.setTouchable(view, params, false)
+        }
+        previewScope.launch {
+            try {
+                overlays.awaitTouchReleased()
+                if (!onPreviewTap(x, y, original?.pressMs ?: DEFAULT_PRESS_MS)) {
+                    notify("点击未完成，请重试")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                notify("点击失败，请重试")
+            } finally {
+                if (!dismissed) windows.forEach { (view, params) ->
+                    view.visibility = View.VISIBLE
+                    overlays.setTouchable(view, params, true)
+                }
+                previewing = false
+            }
+        }
     }
 
     private fun refreshPanel() {

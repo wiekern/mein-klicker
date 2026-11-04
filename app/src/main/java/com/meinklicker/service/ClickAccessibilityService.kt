@@ -116,6 +116,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         val scope = scope ?: return
         this.scope = null
         container.detachService(this)
+        editor?.dismiss()
         editor = null
         overlays.removeAll()
         scope.cancel()
@@ -223,7 +224,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private fun startEditor(scheme: Scheme?) {
         if (editor != null || runController.state.value != RunState.Idle) return
         val defaultName = "方案 ${repository.schemes.value.size + 1}"
-        editor = MarkerEditorOverlay(this, overlays, scheme, defaultName, ::toast) { result ->
+        editor = MarkerEditorOverlay(this, overlays, scheme, defaultName, ::toast, gestures::tap) { result ->
             editor = null
             if (result != null) {
                 // 用进程级作用域：服务恰好断开时也要把文件和内存都更新完

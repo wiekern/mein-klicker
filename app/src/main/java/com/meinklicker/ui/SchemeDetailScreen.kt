@@ -1,11 +1,14 @@
 package com.meinklicker.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -39,6 +42,7 @@ import com.meinklicker.data.MIN_DELAY_MS
 import com.meinklicker.data.MIN_PRESS_MS
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.triggerLabel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** 方案参数设置。位置不在这里设置，在目标应用上用悬浮栏的 ✎ 拖动设置。 */
@@ -53,6 +57,8 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var interval by remember(scheme.id) { mutableStateOf("${scheme.loop.intervalMs}") }
     var press by remember(scheme.id) { mutableStateOf("${scheme.pressMs}") }
     var showPressTips by remember { mutableStateOf(false) }
+    var saving by remember(scheme.id) { mutableStateOf(false) }
+    var saveError by remember(scheme.id) { mutableStateOf<String?>(null) }
     val triggerDelays = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.delayAfterMs}" }.toTypedArray()) }
     val triggerRadii = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.radiusDp}" }.toTypedArray()) }
     val stepDelays = remember(scheme.id, scheme.steps) { mutableStateListOf(*scheme.steps.map { "${it.delayBeforeMs}" }.toTypedArray()) }
@@ -72,6 +78,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
         stepDelayValues.all { it != null }
 
     fun save() {
+        if (!valid || saving) return
         val updated = scheme.copy(
             name = name.trim(),
             loop = LoopConfig(count = if (infinite) 0 else countValue!!, intervalMs = intervalValue!!),
@@ -82,21 +89,42 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
             steps = scheme.steps.mapIndexed { i, step -> step.copy(delayBeforeMs = stepDelayValues[i]!!) },
             updatedAt = System.currentTimeMillis(),
         )
-        container.scope.launch { container.repository.save(updated) }
-        onBack()
+        saving = true
+        container.scope.launch {
+            try {
+                container.repository.save(updated)
+                onBack()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                saveError = "保存失败，请重试。输入的内容已保留。"
+            } finally {
+                saving = false
+            }
+        }
     }
 
+    BackHandler(enabled = saving) { }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("方案设置") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
-                actions = { TextButton(enabled = valid, onClick = ::save) { Text("保存") } },
+                navigationIcon = { TextButton(enabled = !saving, onClick = onBack) { Text("返回") } },
+                // 局部函数引用的相等性不包含捕获值，会让按钮保留旧的校验结果。
+                actions = {
+                    TextButton(enabled = valid && !saving, onClick = { save() }) {
+                        Text(if (saving) "保存中…" else "保存")
+                    }
+                },
             )
         },
     ) { padding ->
         LazyColumn(
-            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            Modifier.fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding)
+                .imePadding()
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -167,6 +195,14 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     }
 
     if (showPressTips) PressTipsDialog(onDismiss = { showPressTips = false })
+    saveError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { saveError = null },
+            title = { Text("未能保存方案") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { saveError = null }) { Text("知道了") } },
+        )
+    }
 }
 
 @Composable

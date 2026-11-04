@@ -25,8 +25,9 @@ android {
         applicationId = "com.meinklicker"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.2.0"
+        versionCode = 5
+        versionName = "0.2.2"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -78,4 +79,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.5.2")
 }

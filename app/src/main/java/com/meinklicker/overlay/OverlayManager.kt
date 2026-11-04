@@ -4,12 +4,16 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.util.Size
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import com.meinklicker.util.ScreenInfo
+import kotlin.coroutines.resume
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * 统一管理无障碍服务托管的悬浮窗。所有窗口都用 TOP|START + LAYOUT_NO_LIMITS + SHORT_EDGES，
@@ -64,6 +68,18 @@ class OverlayManager(private val context: Context) {
             params.flags or LayoutParams.FLAG_NOT_TOUCHABLE
         }
         update(view, params)
+    }
+
+    /** 等窗口的触摸区域变更传到输入系统，再向下层应用补发手势。 */
+    suspend fun awaitTouchReleased() {
+        repeat(2) {
+            suspendCancellableCoroutine { cont ->
+                val callback = Choreographer.FrameCallback { if (cont.isActive) cont.resume(Unit) }
+                Choreographer.getInstance().postFrameCallback(callback)
+                cont.invokeOnCancellation { Choreographer.getInstance().removeFrameCallback(callback) }
+            }
+        }
+        delay(16)
     }
 
     fun remove(view: View) {

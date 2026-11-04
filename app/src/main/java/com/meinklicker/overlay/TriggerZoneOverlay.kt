@@ -6,17 +6,13 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
-import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import com.meinklicker.TAG
 import com.meinklicker.data.TriggerConfig
-import kotlin.coroutines.resume
 import kotlin.math.hypot
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * 待命时以各触发点为圆心的可触摸区域，每个触发点一个窗口，屏幕其余部分不受影响。
@@ -71,16 +67,7 @@ class TriggerZoneOverlay(
      * 等 FLAG_NOT_TOUCHABLE 在输入系统侧生效后再补发点击。窗口信息要经 SurfaceFlinger
      * 事务才到 InputDispatcher，通常比 relayout 晚一个 vsync，所以等两帧再留一点余量。
      */
-    suspend fun awaitTouchReleased() {
-        repeat(2) { awaitFrame() }
-        delay(16)
-    }
-
-    private suspend fun awaitFrame() = suspendCancellableCoroutine { cont ->
-        val callback = Choreographer.FrameCallback { if (cont.isActive) cont.resume(Unit) }
-        Choreographer.getInstance().postFrameCallback(callback)
-        cont.invokeOnCancellation { Choreographer.getInstance().removeFrameCallback(callback) }
-    }
+    suspend fun awaitTouchReleased() = overlays.awaitTouchReleased()
 
     private inner class ZoneView(context: Context, private val index: Int) : View(context) {
         private val density = resources.displayMetrics.density
