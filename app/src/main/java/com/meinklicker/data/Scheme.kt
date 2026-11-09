@@ -19,7 +19,22 @@ data class Scheme(
     val loop: LoopConfig = LoopConfig(),
     /** 每次点击的按压时长，步骤和触发补发共用。旧文件没有该字段时取默认值。 */
     val pressMs: Long = DEFAULT_PRESS_MS,
+    /** 可选的面板存在检测；旧方案默认不检测。 */
+    val panelCheck: PanelCheck? = null,
     val updatedAt: Long,
+)
+
+@Serializable
+data class PanelCheck(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    val screenWidth: Int,
+    val screenHeight: Int,
+    val packageName: String,
+    val colors: List<Int>,
+    val enabled: Boolean = true,
 )
 
 @Serializable

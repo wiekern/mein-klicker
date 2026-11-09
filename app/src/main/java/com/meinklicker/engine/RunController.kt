@@ -1,6 +1,7 @@
 package com.meinklicker.engine
 
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.PanelCheck
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -17,6 +18,7 @@ sealed interface RunState {
         val round: Int,
         val step: Int,
         val fromTrigger: Boolean,
+        val panelCheck: PanelCheck? = null,
     ) : RunState
 }
 
@@ -102,23 +104,26 @@ class RunController(
         cancelJob()
         lateinit var self: Job
         self = scope.launch(start = CoroutineStart.LAZY) {
+            var aborted = false
             try {
                 block()
+            } catch (_: RunAborted) {
+                aborted = true
             } finally {
                 // 被 stop()/disarm() 取消时状态已由它们设置；只有自然结束的当前 Job 才在这里迁移
                 if (job === self) {
                     job = null
-                    _state.value = if (fromTrigger) RunState.Armed(scheme.id) else RunState.Idle
+                    _state.value = if (fromTrigger && !aborted) RunState.Armed(scheme.id) else RunState.Idle
                 }
             }
         }
         job = self
-        _state.value = RunState.Running(scheme.id, round = 0, step = 0, fromTrigger = fromTrigger)
+        _state.value = RunState.Running(scheme.id, round = 0, step = 0, fromTrigger = fromTrigger, panelCheck = scheme.panelCheck)
         self.start()
     }
 
     private fun progress(scheme: Scheme, fromTrigger: Boolean): (Int, Int) -> Unit = { round, step ->
-        _state.value = RunState.Running(scheme.id, round, step, fromTrigger)
+        _state.value = RunState.Running(scheme.id, round, step, fromTrigger, panelCheck = scheme.panelCheck)
     }
 
     private fun cancelJob() {

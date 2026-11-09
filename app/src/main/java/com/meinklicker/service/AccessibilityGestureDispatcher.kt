@@ -3,6 +3,8 @@ package com.meinklicker.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.os.Build
+import android.view.Display
 import android.util.Log
 import com.meinklicker.TAG
 import com.meinklicker.engine.GestureDispatcher
@@ -17,6 +19,7 @@ class AccessibilityGestureDispatcher(
     private val service: AccessibilityService,
     /** 每次发出点击时回调（主线程），用于显示点击特效。 */
     private val onTap: (x: Int, y: Int) -> Unit = { _, _ -> },
+    private val displayId: () -> Int = { Display.DEFAULT_DISPLAY },
 ) : GestureDispatcher {
 
     override suspend fun tap(x: Int, y: Int, durationMs: Long): Boolean =
@@ -24,6 +27,7 @@ class AccessibilityGestureDispatcher(
             val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
             val gesture = GestureDescription.Builder()
                 .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+                .apply { if (Build.VERSION.SDK_INT >= 30) setDisplayId(displayId()) }
                 .build()
             val callback = object : AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) {

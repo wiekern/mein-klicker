@@ -29,7 +29,7 @@ class AppContainer(context: Context) {
     /** 把点击转给当前在线的服务；服务不在线时视为被取消。 */
     private val gestures = object : GestureDispatcher {
         override suspend fun tap(x: Int, y: Int, durationMs: Long): Boolean =
-            _serviceFlow.value?.gestures?.tap(x, y, durationMs) ?: false
+            _serviceFlow.value?.tapForRun(x, y, durationMs) ?: false
     }
 
     val runController = RunController(ClickEngine(gestures), scope) { repository.get(it) }

@@ -2,6 +2,7 @@ package com.meinklicker.engine
 
 import com.meinklicker.data.LoopConfig
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.PanelCheck
 import com.meinklicker.data.Step
 import com.meinklicker.data.TriggerConfig
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -195,6 +196,18 @@ class RunControllerTest {
         rc.run("direct")
         settle()
         assertEquals(2, fake.taps.size)
+    }
+
+    @Test
+    fun activeRunKeepsItsPanelGuardWhenSavedSchemeChanges() = runTest {
+        val check = PanelCheck(10, 20, 100, 60, 1080, 2400, "game", emptyList())
+        schemes["direct"] = schemes.getValue("direct").copy(panelCheck = check)
+        val (rc, _) = setup()
+        rc.run("direct")
+        schemes["direct"] = schemes.getValue("direct").copy(panelCheck = null)
+        advanceTimeBy(150)
+        runCurrent()
+        assertEquals(check, (rc.state.value as RunState.Running).panelCheck)
     }
 
     @Test

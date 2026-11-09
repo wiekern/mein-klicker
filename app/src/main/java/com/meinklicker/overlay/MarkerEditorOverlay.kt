@@ -3,6 +3,8 @@ package com.meinklicker.overlay
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Point
+import android.graphics.Rect
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -16,6 +18,7 @@ import com.meinklicker.data.LoopConfig
 import com.meinklicker.data.MAX_TRIGGERS
 import com.meinklicker.data.MIN_DELAY_MS
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.PanelCheck
 import com.meinklicker.data.Step
 import com.meinklicker.data.TriggerConfig
 import com.meinklicker.data.triggerLabel
@@ -38,6 +41,7 @@ class MarkerEditorOverlay(
     private val defaultName: String,
     private val notify: (String) -> Unit,
     private val onPreviewTap: suspend (x: Int, y: Int, pressMs: Long) -> Boolean,
+    private val onCapturePanel: (suspend (Rect) -> PanelCheck)? = null,
     /** 保存时传入新方案，取消时传 null。 */
     private val onFinish: (Scheme?) -> Unit,
 ) {
@@ -81,12 +85,14 @@ class MarkerEditorOverlay(
 
     private val markerSize = overlays.dp(32)
     private val buttonSize = overlays.dp(40)
-    private val captionWidth = overlays.dp(52)
+    private val captionWidth = minOf(overlays.dp(52), (overlays.screen.width - overlays.dp(64)) / 6)
     private val screen = overlays.screen
     private val handler = Handler(Looper.getMainLooper())
     private val previewScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var previewing = false
     private var dismissed = false
+    private var panelCheck = original?.panelCheck
+    private var regionSelector: PanelRegionOverlay? = null
 
     private val triggers = mutableListOf<Marker>()
     private val steps = mutableListOf<Marker>()
@@ -96,6 +102,7 @@ class MarkerEditorOverlay(
 
     private val clearButton = CaptionButton(context, "🗑", CLEAR_CAPTION, captionWidth) { onClearTapped() }
     private val triggerButton = CaptionButton(context, "👆", "触发点", captionWidth) { addTrigger() }
+    private val checkButton = CaptionButton(context, "▣", "面板检测", captionWidth) { selectPanelRegion() }
     private var clearArmed = false
     private val disarmClear = Runnable { setClearArmed(false) }
 
@@ -130,6 +137,7 @@ class MarkerEditorOverlay(
         addView(clearButton)
         addView(verticalDivider(context, dividerHeight))
         addView(triggerButton)
+        addView(checkButton)
         addView(verticalDivider(context, dividerHeight))
         addView(CaptionButton(context, "✓", "保存", captionWidth) { save() })
         addView(CaptionButton(context, "✕", "取消", captionWidth) { finish(null) })
@@ -188,6 +196,8 @@ class MarkerEditorOverlay(
     fun dismiss() {
         dismissed = true
         previewScope.cancel()
+        regionSelector?.dismiss()
+        regionSelector = null
         handler.removeCallbacks(disarmClear)
         closePanel()
         triggers.forEach { overlays.remove(it.view) }
@@ -282,6 +292,7 @@ class MarkerEditorOverlay(
         steps.forEachIndexed { i, m -> m.view.label = "${i + 1}" }
         // 已有触发点时按钮为红色圆底（与待命按钮、触发区同色）
         triggerButton.background = if (triggers.isNotEmpty()) roundedBg(TRIGGER_COLOR, overlays.dp(8).toFloat()) else null
+        checkButton.background = if (panelCheck?.enabled == true) roundedBg(STEP_COLOR, overlays.dp(8).toFloat()) else null
         clearButton.isEnabled = steps.isNotEmpty()
         if (steps.isEmpty()) setClearArmed(false)
         if (panelMarker != null) refreshPanel()
@@ -305,6 +316,7 @@ class MarkerEditorOverlay(
             screenHeight = screen.height,
             triggers = triggers,
             steps = steps,
+            panelCheck = panelCheck,
             updatedAt = System.currentTimeMillis(),
         ) ?: Scheme(
             id = UUID.randomUUID().toString(),
@@ -314,6 +326,7 @@ class MarkerEditorOverlay(
             triggers = triggers,
             steps = steps,
             loop = LoopConfig(),
+            panelCheck = panelCheck,
             updatedAt = System.currentTimeMillis(),
         )
         finish(scheme)
@@ -384,6 +397,55 @@ class MarkerEditorOverlay(
     private fun closePanel() {
         panelMarker = null
         overlays.remove(panel)
+    }
+
+    private fun selectPanelRegion() {
+        if (previewing || dismissed) return
+        val capture = onCapturePanel
+        if (Build.VERSION.SDK_INT < 30 || capture == null) {
+            notify("面板检测需要 Android 11 或以上")
+            return
+        }
+        previewing = true
+        closePanel()
+        val windows = (triggers + steps).map { it.view to it.params } + (bar to barParams)
+        windows.forEach { (view, params) ->
+            view.visibility = View.INVISIBLE
+            overlays.setTouchable(view, params, false)
+        }
+        lines.dismiss()
+        fun restore() {
+            if (!dismissed) {
+                lines.show()
+                refreshLines()
+                windows.forEach { (view, params) ->
+                    view.visibility = View.VISIBLE
+                    overlays.setTouchable(view, params, true)
+                }
+                relabel()
+            }
+            previewing = false
+        }
+        regionSelector = PanelRegionOverlay(context, overlays) { region ->
+            regionSelector = null
+            if (region == null) {
+                restore()
+            } else {
+                previewScope.launch {
+                    try {
+                        overlays.awaitTouchReleased()
+                        panelCheck = capture(region)
+                        notify("已设置面板检测，保存后生效；区域消失会停止并退出待命")
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        notify("未能设置检测：${e.message ?: "无法读取画面"}")
+                    } finally {
+                        restore()
+                    }
+                }
+            }
+        }.also { it.show() }
     }
 
     private fun panelText(size: Float) = TextView(context).apply {

@@ -24,6 +24,9 @@ class OverlayManager(private val context: Context) {
     private val views = mutableSetOf<View>()
     private val density = context.resources.displayMetrics.density
 
+    @Suppress("DEPRECATION")
+    val displayId: Int get() = wm.defaultDisplay.displayId
+
     val screen: Size get() = ScreenInfo.realSize(context)
 
     fun dp(value: Int): Int = (value * density).roundToInt()

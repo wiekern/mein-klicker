@@ -57,6 +57,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var interval by remember(scheme.id) { mutableStateOf("${scheme.loop.intervalMs}") }
     var press by remember(scheme.id) { mutableStateOf("${scheme.pressMs}") }
     var showPressTips by remember { mutableStateOf(false) }
+    var panelCheckEnabled by remember(scheme.id) { mutableStateOf(scheme.panelCheck?.enabled == true) }
     var saving by remember(scheme.id) { mutableStateOf(false) }
     var saveError by remember(scheme.id) { mutableStateOf<String?>(null) }
     val triggerDelays = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.delayAfterMs}" }.toTypedArray()) }
@@ -83,6 +84,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
             name = name.trim(),
             loop = LoopConfig(count = if (infinite) 0 else countValue!!, intervalMs = intervalValue!!),
             pressMs = pressValue!!,
+            panelCheck = scheme.panelCheck?.copy(enabled = panelCheckEnabled),
             triggers = scheme.triggers.mapIndexed { i, t ->
                 t.copy(delayAfterMs = triggerDelayValues[i]!!, radiusDp = triggerRadiusValues[i]!!)
             },
@@ -153,6 +155,24 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
                 item { NumberField("循环次数", count, countValue == null, "≥ 1") { count = it } }
             }
             item { NumberField("轮间隔 (ms)", interval, intervalValue == null, "≥ 0") { interval = it } }
+
+            item { SectionTitle("面板消失自动停止") }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("点击前检测面板", Modifier.weight(1f))
+                        Switch(checked = panelCheckEnabled, enabled = scheme.panelCheck != null,
+                            onCheckedChange = { panelCheckEnabled = it })
+                    }
+                    Text(
+                        if (scheme.panelCheck == null)
+                            "在目标面板打开时，点悬浮栏 ✎ → 面板检测，框选标题等固定特征并保存。需要 Android 11 或以上。"
+                        else
+                            "每次点击前检查选区。选区变化时先暂停，复查仍不匹配则停止并退出待命；截图失败也停止。检测会降低连点速度，最后截图与点击之间仍可能发生画面变化。重新框选请用悬浮栏 ✎ → 面板检测。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
 
             if (scheme.triggers.isNotEmpty()) {
                 item { SectionTitle(if (scheme.triggers.size == 1) "触发点" else "触发点（点中任意一个开始）") }

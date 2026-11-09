@@ -53,6 +53,14 @@ class SchemeRepositoryTest {
     }
 
     @Test
+    fun panelCheckSurvivesSaveReloadAndDisable() = runTest {
+        val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
+        val check = PanelCheck(10, 20, 200, 70, 1080, 2400, "game", listOf(0xFF306080.toInt()), enabled = false)
+        repo.save(sample.copy(panelCheck = check))
+        assertEquals(check, SchemeRepository(file()).get(sample.id)!!.panelCheck)
+    }
+
+    @Test
     fun delete() = runTest {
         val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
         repo.save(sample)
@@ -78,6 +86,7 @@ class SchemeRepositoryTest {
         val s = SchemeRepository(file()).get("x")!!
         assertEquals(LoopConfig(), s.loop)
         assertEquals(DEFAULT_PRESS_MS, s.pressMs)
+        assertNull(s.panelCheck)
         assertTrue(s.triggers.isEmpty())
     }
 

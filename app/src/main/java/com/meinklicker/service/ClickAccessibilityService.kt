@@ -4,15 +4,22 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.WindowManager
 import com.meinklicker.TAG
 import com.meinklicker.container
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.PanelCheck
 import com.meinklicker.data.triggerLabel
 import com.meinklicker.engine.GestureDispatcher
 import com.meinklicker.engine.RunState
+import com.meinklicker.engine.RunAborted
+import com.meinklicker.engine.PanelMatcher
+import com.meinklicker.engine.PanelVisibilityGate
 import com.meinklicker.overlay.ControlBarOverlay
 import com.meinklicker.overlay.MarkerEditorOverlay
 import com.meinklicker.overlay.MessageOverlay
@@ -21,19 +28,28 @@ import com.meinklicker.overlay.TapEffectOverlay
 import com.meinklicker.overlay.TriggerZoneOverlay
 import com.meinklicker.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.File
 
 /** 核心宿主：托管所有悬浮窗，执行手势，把用户动作转给 RunController。 */
 class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Actions {
 
     val gestures: GestureDispatcher by lazy {
-        AccessibilityGestureDispatcher(this) { x, y -> if (::tapEffect.isInitialized) tapEffect.tapAt(x, y) }
+        AccessibilityGestureDispatcher(this,
+            onTap = { x, y -> if (::tapEffect.isInitialized) tapEffect.tapAt(x, y) },
+            displayId = { overlays.displayId },
+        )
     }
+
+    private val panelScreenshot by lazy { if (Build.VERSION.SDK_INT >= 30) PanelScreenshot(this) else null }
 
     private var scope: CoroutineScope? = null
     private lateinit var overlays: OverlayManager
@@ -52,9 +68,19 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "accessibility service connected")
+        initializeOverlays()
+    }
+
+    private fun initializeOverlays() {
         // 部分 ROM 会对同一实例重复回调，先清掉上一次的悬浮窗和协程
         teardown()
-        overlays = OverlayManager(this)
+        // 多屏设备上，标记、截图和手势必须使用同一个 display。
+        val activeDisplay = if (Build.VERSION.SDK_INT >= 30) rootInActiveWindow?.window?.displayId else null
+        val display = activeDisplay?.let { getSystemService(DisplayManager::class.java).getDisplay(it) }
+        val overlayContext = if (display != null && Build.VERSION.SDK_INT >= 30) {
+            createDisplayContext(display).createWindowContext(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, null)
+        } else this
+        overlays = OverlayManager(overlayContext)
         controlBar = ControlBarOverlay(this, overlays, this)
         triggerZone = TriggerZoneOverlay(this, overlays, ::onTriggerTapped) {
             Log.w(TAG, "replay intercepted")
@@ -100,6 +126,58 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     override fun onInterrupt() = Unit
+
+    /** 运行中的每一次点击（含触发补发）都先检测，不让后台监测与点击并行。 */
+    suspend fun tapForRun(x: Int, y: Int, durationMs: Long): Boolean {
+        val state = runController.state.value as? RunState.Running ?: return false
+        val check = state.panelCheck?.takeIf { it.enabled }
+        if (check != null) {
+            try {
+                PanelVisibilityGate {
+                    val screen = overlays.screen
+                    check(screen.width == check.screenWidth && screen.height == check.screenHeight) {
+                        "屏幕尺寸已改变（${screen.width}×${screen.height}，参考 ${check.screenWidth}×${check.screenHeight}），请重新框选检测区域"
+                    }
+                    controlBar.bounds()?.let { bar ->
+                        check(!Rect.intersects(bar, Rect(check.left, check.top, check.right, check.bottom))) {
+                            "悬浮栏挡住检测区域，请拖开后重新开始"
+                        }
+                    }
+                    capturePanelFrame().use { frame ->
+                        check(frame.packageName == check.packageName) { "当前应用已切换" }
+                        frame.matches(check)
+                    }
+                }.awaitVisible()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val message = if (e is RunAborted) e.message!! else "检测失败，已停止：${e.message ?: "无法读取画面"}"
+                toast(message)
+                throw RunAborted(message)
+            }
+        }
+        currentCoroutineContext().ensureActive()
+        return gestures.tap(x, y, durationMs)
+    }
+
+    private suspend fun capturePanelFrame(): PanelScreenshot.Frame {
+        check(Build.VERSION.SDK_INT >= 30) { "面板检测需要 Android 11 或以上" }
+        return try {
+            panelScreenshot!!.capture(overlays.displayId)
+        } catch (_: TimeoutCancellationException) {
+            throw IllegalStateException("截图超时")
+        }
+    }
+
+    private suspend fun capturePanel(region: Rect): PanelCheck {
+        return capturePanelFrame().use { frame ->
+            val colors = frame.sample(region)
+            check(PanelMatcher.hasDetail(colors)) { "选区缺少特征，请框选标题文字或图标" }
+            val screen = overlays.screen
+            PanelCheck(region.left, region.top, region.right, region.bottom,
+                screen.width, screen.height, frame.packageName, colors)
+        }
+    }
 
     override fun onUnbind(intent: Intent?): Boolean {
         teardown()
@@ -159,6 +237,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     /** 运行前检查：方案有步骤、步骤不落在悬浮栏上；分辨率不一致只提示。 */
     private fun checkedSelectedScheme(): Scheme? {
+        ensureCurrentDisplay()
         val scheme = container.selectedSchemeId.value?.let(repository::get)
         if (scheme == null || scheme.steps.isEmpty()) {
             toast("请先选择一个有步骤的方案")
@@ -223,8 +302,11 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     /** 编辑期间隐藏悬浮栏，只显示标记和编辑栏。 */
     private fun startEditor(scheme: Scheme?) {
         if (editor != null || runController.state.value != RunState.Idle) return
+        ensureCurrentDisplay()
         val defaultName = "方案 ${repository.schemes.value.size + 1}"
-        editor = MarkerEditorOverlay(this, overlays, scheme, defaultName, ::toast, gestures::tap) { result ->
+        editor = MarkerEditorOverlay(this, overlays, scheme, defaultName, ::toast, gestures::tap,
+            onCapturePanel = ::capturePanel,
+        ) { result ->
             editor = null
             if (result != null) {
                 // 用进程级作用域：服务恰好断开时也要把文件和内存都更新完
@@ -242,6 +324,13 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private fun refreshControlBarVisibility() {
         val visible = container.controlBarEnabled.value && editor == null && !container.mainUiVisible.value
         if (visible) controlBar.show() else controlBar.hide()
+    }
+
+    private fun ensureCurrentDisplay() {
+        if (Build.VERSION.SDK_INT >= 30 && editor == null && runController.state.value == RunState.Idle) {
+            val displayId = rootInActiveWindow?.window?.displayId ?: return
+            if (displayId != overlays.displayId) initializeOverlays()
+        }
     }
 
     private val isDebuggable: Boolean
