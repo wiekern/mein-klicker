@@ -107,7 +107,9 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
         saving = true
         container.scope.launch {
             try {
-                container.repository.save(updated, overrideRotationProgress = calibrateRotation)
+                container.runController.editSettings {
+                    container.repository.save(updated, overrideRotationProgress = calibrateRotation)
+                }
                 onBack()
             } catch (e: CancellationException) {
                 throw e

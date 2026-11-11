@@ -44,10 +44,22 @@ class RunController(
     private var job: Job? = null
     var isCommitting: Boolean = false
         private set
+    private var editing = false
+
+    /** 设置落盘期间不接受新的启动，避免待命触发拿到旧配置。 */
+    suspend fun editSettings(block: suspend () -> Unit) {
+        check(_state.value !is RunState.Running && !isCommitting && !editing) { "请先停止运行，再保存方案设置" }
+        editing = true
+        try {
+            block()
+        } finally {
+            editing = false
+        }
+    }
 
     /** 直接运行（不经过触发点）。只在 Idle 时有效。 */
     fun run(schemeId: String): Boolean {
-        if (_state.value != RunState.Idle || isCommitting) return false
+        if (_state.value != RunState.Idle || isCommitting || editing) return false
         val scheme = lookup(schemeId)?.takeIf { it.steps.isNotEmpty() } ?: return false
         if (!validRotation(scheme)) return false
         start(scheme, fromTrigger = false) { executeSteps(scheme, false) }
@@ -56,7 +68,7 @@ class RunController(
 
     /** 进入待命。方案至少要有一个触发点。 */
     fun arm(schemeId: String): Boolean {
-        if (_state.value != RunState.Idle || isCommitting) return false
+        if (_state.value != RunState.Idle || isCommitting || editing) return false
         val scheme = lookup(schemeId) ?: return false
         if (scheme.triggers.isEmpty() || !validRotation(scheme)) return false
         _state.value = RunState.Armed(schemeId)
@@ -76,7 +88,7 @@ class RunController(
         onReplayed: () -> Unit = {},
     ): Boolean {
         val armed = _state.value as? RunState.Armed ?: return false
-        if (isCommitting) return false
+        if (isCommitting || editing) return false
         val scheme = lookup(armed.schemeId)
         if (scheme == null || scheme.triggers.isEmpty()) {
             _state.value = RunState.Idle

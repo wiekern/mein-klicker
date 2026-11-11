@@ -397,11 +397,12 @@ class MarkerEditorOverlay(
             if (label == "T") "触发点" else "触发点 $label"
         } else {
             val memberIndex = steps.filter { it.stepId in original?.rotationGroup?.stepIds.orEmpty() }.indexOf(m)
-            "第 ${steps.indexOf(m) + 1} 步" + when {
+            val suffix = when {
                 memberIndex >= 0 -> " · 循环组第 ${memberIndex + 1} 项"
                 m.stepId == original?.rotationGroup?.commitStepId -> " · 进度确认"
                 else -> ""
             }
+            "第 ${steps.indexOf(m) + 1} 步$suffix"
         }
         panelX.text = "X ${m.x}"
         panelY.text = "Y ${m.y}"

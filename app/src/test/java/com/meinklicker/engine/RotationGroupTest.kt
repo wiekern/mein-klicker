@@ -11,6 +11,7 @@ import com.meinklicker.data.rotationMembers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -163,5 +164,36 @@ class RotationGroupTest {
         assertFalse(rc.run("rotation"))
         assertFalse(rc.arm("rotation"))
         assertNull(original.copy(steps = emptyList()).reconcileRotation().rotationGroup)
+    }
+
+    @Test fun pendingSettingsSaveBlocksTriggersAndRestoresArmedModeAfterFailure() = runTest {
+        val rc = RunController(ClickEngine(FakeGestureDispatcher(testScheduler)), backgroundScope) { scheme() }
+        val release = CompletableDeferred<Unit>()
+        rc.arm("rotation")
+        val save = backgroundScope.launch {
+            try {
+                rc.editSettings { release.await(); throw IllegalStateException("disk error") }
+            } catch (_: IllegalStateException) { }
+        }
+        runCurrent()
+        assertFalse(rc.onTriggerTapped(0, 90, 90))
+        assertEquals(RunState.Armed("rotation"), rc.state.value)
+        release.complete(Unit)
+        runCurrent()
+        assertTrue(save.isCompleted)
+        assertTrue(rc.onTriggerTapped(1, 80, 80))
+        rc.stop()
+    }
+
+    @Test fun editingCannotChangeAnActiveRun() = runTest {
+        val rc = RunController(ClickEngine(FakeGestureDispatcher(testScheduler)), backgroundScope) { scheme() }
+        rc.run("rotation")
+        var edited = false
+        try {
+            rc.editSettings { edited = true }
+            fail("must reject edits during a run")
+        } catch (_: IllegalStateException) { }
+        assertFalse(edited)
+        rc.stop()
     }
 }
