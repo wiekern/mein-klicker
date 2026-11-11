@@ -24,6 +24,7 @@ internal class OrderLinesOverlay(context: Context, private val overlays: Overlay
 
     private var triggers: List<Point> = emptyList()
     private var steps: List<Point> = emptyList()
+    private var triggerPreview: Pair<Point, Int>? = null
 
     fun show() {
         val screen = overlays.screen
@@ -40,8 +41,15 @@ internal class OrderLinesOverlay(context: Context, private val overlays: Overlay
         view.invalidate()
     }
 
+    /** 复用不可触摸层预览范围，圆外及圆内均不拦截操作。radius 为屏幕像素。 */
+    fun previewTrigger(center: Point?, radius: Int = 0) {
+        triggerPreview = center?.let { it to radius }
+        view.invalidate()
+    }
+
     private inner class LinesView(context: Context) : View(context) {
         private val density = resources.displayMetrics.density
+        private val triggerCircle = TriggerCirclePainter(density)
         private val stepLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xB31E88E5.toInt()
             strokeWidth = 3 * density
@@ -57,6 +65,9 @@ internal class OrderLinesOverlay(context: Context, private val overlays: Overlay
         override fun onDraw(canvas: Canvas) {
             steps.firstOrNull()?.let { first -> triggers.forEach { drawLink(canvas, it, first, triggerLine) } }
             steps.zipWithNext().forEach { (a, b) -> drawLink(canvas, a, b, stepLine) }
+            triggerPreview?.let { (center, radius) ->
+                triggerCircle.draw(canvas, center.x.toFloat(), center.y.toFloat(), radius.toFloat())
+            }
         }
 
         private fun drawLink(canvas: Canvas, a: Point, b: Point, paint: Paint) {

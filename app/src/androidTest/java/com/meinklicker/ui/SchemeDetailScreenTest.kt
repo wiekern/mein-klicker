@@ -61,7 +61,7 @@ class SchemeDetailScreenTest {
         replace("轮间隔 (ms)", "1234")
         replace("按压时长 (ms)", "80")
         replace("触发后延迟 (ms)", "450")
-        replace("触发区半径 (dp)", "55")
+        replace("触发区直径 (dp)", "110")
         replace("第 1 步 (100, 200) 等待 ms", "600")
         replace("第 2 步 (300, 400) 等待 ms", "900")
         compose.onNodeWithText("保存").performClick()

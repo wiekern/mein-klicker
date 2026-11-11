@@ -41,6 +41,8 @@ import com.meinklicker.data.LoopConfig
 import com.meinklicker.data.MAX_PRESS_MS
 import com.meinklicker.data.MIN_DELAY_MS
 import com.meinklicker.data.MIN_PRESS_MS
+import com.meinklicker.data.MIN_TRIGGER_RADIUS_DP
+import com.meinklicker.data.MAX_TRIGGER_RADIUS_DP
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.triggerLabel
 import com.meinklicker.data.rotationError
@@ -68,14 +70,18 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     val runState by container.runController.state.collectAsStateWithLifecycle()
     val editable = runState !is RunState.Running && !saving
     val triggerDelays = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.delayAfterMs}" }.toTypedArray()) }
-    val triggerRadii = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.radiusDp}" }.toTypedArray()) }
+    val triggerDiameters = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.radiusDp * 2}" }.toTypedArray()) }
     val stepDelays = remember(scheme.id, scheme.steps) { mutableStateListOf(*scheme.steps.map { "${it.delayBeforeMs}" }.toTypedArray()) }
 
     val countValue = count.toIntOrNull()?.takeIf { it >= 1 }
     val intervalValue = interval.toLongOrNull()?.takeIf { it >= 0 }
     val pressValue = press.toLongOrNull()?.takeIf { it in MIN_PRESS_MS..MAX_PRESS_MS }
     val triggerDelayValues = triggerDelays.map { it.toLongOrNull()?.takeIf { v -> v >= 0 } }
-    val triggerRadiusValues = triggerRadii.map { it.toIntOrNull()?.takeIf { v -> v in 10..200 } }
+    val triggerRadiusValues = triggerDiameters.map {
+        it.toIntOrNull()?.takeIf { v ->
+            v in (MIN_TRIGGER_RADIUS_DP * 2)..(MAX_TRIGGER_RADIUS_DP * 2) && v % 2 == 0
+        }?.div(2)
+    }
     val stepDelayValues = stepDelays.map { it.toLongOrNull()?.takeIf { v -> v >= MIN_DELAY_MS } }
     val valid = name.isNotBlank() &&
         (rotationGroup != null || ((infinite || countValue != null) && intervalValue != null)) &&
@@ -210,8 +216,8 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
                     NumberField("触发后延迟 (ms)", triggerDelays[i], triggerDelayValues[i] == null, "≥ 0") {
                         triggerDelays[i] = it
                     }
-                    NumberField("触发区半径 (dp)", triggerRadii[i], triggerRadiusValues[i] == null, "10–200") {
-                        triggerRadii[i] = it
+                    NumberField("触发区直径 (dp)", triggerDiameters[i], triggerRadiusValues[i] == null, "20–400，偶数") {
+                        triggerDiameters[i] = it
                     }
                 }
             }

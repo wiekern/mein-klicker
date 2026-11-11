@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="trigger_diameter_value">触发区直径 %1$d dp</string>
     <string name="panel_region_hint">拖框选取面板标题等固定特征\n避开数量、计时和点击位置</string>
     <string name="app_name">MeinKlicker</string>
     <string name="a11y_label">MeinKlicker 自动点击</string>

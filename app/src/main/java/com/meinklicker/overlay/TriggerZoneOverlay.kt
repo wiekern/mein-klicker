@@ -3,8 +3,6 @@ package com.meinklicker.overlay
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
@@ -70,25 +68,14 @@ class TriggerZoneOverlay(
     suspend fun awaitTouchReleased() = overlays.awaitTouchReleased()
 
     private inner class ZoneView(context: Context, private val index: Int) : View(context) {
-        private val density = resources.displayMetrics.density
-        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x40E53935 }
-        private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xCCE53935.toInt()
-            style = Paint.Style.STROKE
-            strokeWidth = 2 * density
-        }
-        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        private val circle = TriggerCirclePainter(resources.displayMetrics.density)
         private var downX = 0f
         private var downY = 0f
         private var downInside = false
         private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
         override fun onDraw(canvas: Canvas) {
-            val c = width / 2f
-            val r = c - stroke.strokeWidth
-            canvas.drawCircle(c, c, r, fill)
-            canvas.drawCircle(c, c, r, stroke)
-            canvas.drawCircle(c, c, 2 * density, dot)
+            circle.draw(canvas, width / 2f, height / 2f, width / 2f)
         }
 
         @SuppressLint("ClickableViewAccessibility")

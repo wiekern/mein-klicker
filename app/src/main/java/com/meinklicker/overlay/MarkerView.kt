@@ -8,6 +8,12 @@ import android.view.View
 
 /** 半透明圆点 + 编号 + 中心十字。十字中心就是点击坐标。 */
 internal class MarkerView(context: Context, private val fillColor: Int) : View(context) {
+    var showCircle = true
+        set(value) {
+            field = value
+            invalidate()
+        }
+
     var label: String = ""
         set(value) {
             field = value
@@ -37,8 +43,10 @@ internal class MarkerView(context: Context, private val fillColor: Int) : View(c
         val cx = width / 2f
         val cy = height / 2f
         val r = minOf(cx, cy) - stroke.strokeWidth
-        canvas.drawCircle(cx, cy, r, fill)
-        canvas.drawCircle(cx, cy, r, stroke)
+        if (showCircle) {
+            canvas.drawCircle(cx, cy, r, fill)
+            canvas.drawCircle(cx, cy, r, stroke)
+        }
         val arm = 4 * density
         canvas.drawLine(cx - arm, cy, cx + arm, cy, cross)
         canvas.drawLine(cx, cy - arm, cx, cy + arm, cross)

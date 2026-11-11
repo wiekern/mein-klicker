@@ -150,6 +150,28 @@ class SchemeRepositoryTest {
     }
 
     @Test
+    fun resizingOneTriggerPreservesLegacyDefaultOtherTriggersAndCoordinates() = runTest {
+        file().writeText(
+            """{"version":1,"schemes":[{"id":"old","name":"n","screenWidth":1080,"screenHeight":2400,"updatedAt":3,
+               |"triggers":[{"x":10,"y":20},{"x":30,"y":40,"radiusDp":150}]}]}""".trimMargin()
+        )
+        val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
+        val scheme = repo.get("old")!!
+        // 没有保存过半径的旧数据仍为直径 80dp，不套用新建点的 40dp。
+        assertEquals(40, scheme.triggers.first().radiusDp)
+        repo.save(scheme.copy(triggers = listOf(
+            scheme.triggers.first().copy(radiusDp = 10),
+            scheme.triggers.last(),
+            TriggerConfig(50, 60, radiusDp = NEW_TRIGGER_RADIUS_DP),
+        )))
+        assertEquals(listOf(
+            TriggerConfig(10, 20, radiusDp = 10),
+            TriggerConfig(30, 40, radiusDp = 150),
+            TriggerConfig(50, 60, radiusDp = 20),
+        ), SchemeRepository(file()).get("old")!!.triggers)
+    }
+
+    @Test
     fun legacySingleTriggerIsMigrated() = runTest {
         file().writeText(
             """{"version":1,"schemes":[{"id":"old","name":"n","screenWidth":1,"screenHeight":2,"updatedAt":3,

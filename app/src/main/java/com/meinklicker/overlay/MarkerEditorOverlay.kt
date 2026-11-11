@@ -10,10 +10,15 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
+import com.meinklicker.R
 import com.meinklicker.data.DEFAULT_DELAY_MS
 import com.meinklicker.data.DEFAULT_PRESS_MS
-import com.meinklicker.data.DEFAULT_TRIGGER_RADIUS_DP
+import com.meinklicker.data.NEW_TRIGGER_RADIUS_DP
+import com.meinklicker.data.MIN_TRIGGER_RADIUS_DP
+import com.meinklicker.data.MAX_TRIGGER_RADIUS_DP
 import com.meinklicker.data.LoopConfig
 import com.meinklicker.data.MAX_TRIGGERS
 import com.meinklicker.data.MIN_DELAY_MS
@@ -51,8 +56,8 @@ class MarkerEditorOverlay(
         var y: Int,
         var delayMs: Long,
         val isTrigger: Boolean,
-        /** 只对触发点有意义；编辑器里不改，在主界面的方案设置页修改。 */
-        val radiusDp: Int = DEFAULT_TRIGGER_RADIUS_DP,
+        /** 只对触发点有意义。 */
+        var radiusDp: Int = NEW_TRIGGER_RADIUS_DP,
         val stepId: String = UUID.randomUUID().toString(),
     ) {
         val view = MarkerView(context, if (isTrigger) TRIGGER_COLOR else STEP_COLOR)
@@ -152,12 +157,40 @@ class MarkerEditorOverlay(
     private val panelX = panelText(14f)
     private val panelY = panelText(14f)
     private val panelDelay = panelText(14f)
+    private val panelDiameter = panelText(14f)
+    private val diameterSlider = SeekBar(context).apply {
+        max = MAX_TRIGGER_RADIUS_DP - MIN_TRIGGER_RADIUS_DP
+        contentDescription = "触发区直径"
+        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fromUser) setTriggerRadius(progress + MIN_TRIGGER_RADIUS_DP)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
+    }
+    private val diameterControls = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(0, overlays.dp(4), 0, 0)
+        addView(panelDiameter)
+        addView(LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(BarButton(context, "−", buttonSize) {
+                panelMarker?.let { setTriggerRadius(it.radiusDp - 1) }
+            }.apply { contentDescription = "缩小触发区" })
+            addView(diameterSlider, LinearLayout.LayoutParams(0, buttonSize, 1f))
+            addView(BarButton(context, "+", buttonSize) {
+                panelMarker?.let { setTriggerRadius(it.radiusDp + 1) }
+            }.apply { contentDescription = "放大触发区" })
+        })
+    }
     private val panelParams = overlays.newParams()
-    private val panel = LinearLayout(context).apply {
+    private val panelContent = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         background = roundedBg(BAR_BG, overlays.dp(12).toFloat())
         setPadding(overlays.dp(12), overlays.dp(8), overlays.dp(12), overlays.dp(8))
         addView(panelTitle)
+        addView(diameterControls)
         addView(stepperRow(panelX, listOf(-10, -1, 1, 10)) { d -> panelMarker?.let { it.moveTo(it.x + d, it.y) } })
         addView(stepperRow(panelY, listOf(-10, -1, 1, 10)) { d -> panelMarker?.let { it.moveTo(it.x, it.y + d) } })
         addView(stepperRow(panelDelay, listOf(-100, -10, 10, 100)) { d ->
@@ -183,6 +216,7 @@ class MarkerEditorOverlay(
             })
         })
     }
+    private val panel = ScrollView(context).apply { addView(panelContent) }
 
     fun show() {
         original?.triggers?.forEach { triggers += Marker(it.x, it.y, it.delayAfterMs, isTrigger = true, it.radiusDp) }
@@ -347,14 +381,29 @@ class MarkerEditorOverlay(
     }
 
     private fun openPanel(marker: Marker) {
+        panelMarker?.view?.showCircle = true
         panelMarker = marker
         refreshPanel()
-        // 面板放在标记下方，靠下时放到上方
+        // 按内容测量并限制高度，短屏/横屏时可滚动到所有控件。
+        panelParams.width = minOf(overlays.dp(280), screen.width - overlays.dp(32))
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(panelParams.width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        panelParams.height = minOf(panel.measuredHeight, screen.height - overlays.dp(32))
         panelParams.x = overlays.dp(16)
-        panelParams.y = if (marker.y < screen.height / 2) marker.y + markerSize else {
-            (marker.y - markerSize - overlays.dp(280)).coerceAtLeast(0)
-        }
+        val gap = if (marker.isTrigger) overlays.dp(marker.radiusDp + 8) else markerSize
+        val below = marker.y + gap
+        panelParams.y = (if (below + panelParams.height <= screen.height) below
+            else marker.y - gap - panelParams.height).coerceIn(0, screen.height - panelParams.height)
+        panel.scrollTo(0, 0)
         if (overlays.isShown(panel)) overlays.update(panel, panelParams) else overlays.add(panel, panelParams)
+    }
+
+    private fun setTriggerRadius(radiusDp: Int) {
+        val marker = panelMarker?.takeIf { it.isTrigger } ?: return
+        marker.radiusDp = radiusDp.coerceIn(MIN_TRIGGER_RADIUS_DP, MAX_TRIGGER_RADIUS_DP)
+        refreshPanel()
     }
 
     /** 编辑时只点击当前标记一次，方便进入下一步所需界面；不执行循环或后续步骤。 */
@@ -407,10 +456,21 @@ class MarkerEditorOverlay(
         panelX.text = "X ${m.x}"
         panelY.text = "Y ${m.y}"
         panelDelay.text = if (m.isTrigger) "触发后延迟 ${m.delayMs} ms" else "等待 ${m.delayMs} ms"
+        diameterControls.visibility = if (m.isTrigger) View.VISIBLE else View.GONE
+        m.view.showCircle = !m.isTrigger
+        if (m.isTrigger) {
+            panelDiameter.text = context.getString(R.string.trigger_diameter_value, m.radiusDp * 2)
+            diameterSlider.progress = m.radiusDp - MIN_TRIGGER_RADIUS_DP
+            lines.previewTrigger(Point(m.x, m.y), overlays.dp(m.radiusDp))
+        } else {
+            lines.previewTrigger(null)
+        }
     }
 
     private fun closePanel() {
+        panelMarker?.view?.showCircle = true
         panelMarker = null
+        lines.previewTrigger(null)
         overlays.remove(panel)
     }
 
