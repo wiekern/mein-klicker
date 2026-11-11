@@ -21,6 +21,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -53,6 +55,7 @@ import kotlinx.coroutines.launch
 private const val DEVELOPER_URL = "https://github.com/wiekern"
 private const val REPOSITORY_URL = "https://github.com/wiekern/mein-klicker"
 private const val ISSUES_URL = "$REPOSITORY_URL/issues"
+private const val APP_REGISTRATION_NUMBER = "粤ICP备2025384729号-3A"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -121,6 +124,16 @@ fun AboutScreen(onBack: () -> Unit) {
                         scope.launch { snackbar.showSnackbar("版本号已复制") }
                     }
                     HorizontalDivider()
+                    AboutInfoRow(
+                        "APP 备案号", APP_REGISTRATION_NUMBER, "打开工信部备案网站",
+                        onCopy = {
+                            clipboard.setText(AnnotatedString(APP_REGISTRATION_NUMBER))
+                            scope.launch { snackbar.showSnackbar("备案号已复制") }
+                        },
+                    ) {
+                        openLink("https://beian.miit.gov.cn/")
+                    }
+                    HorizontalDivider()
                     AboutInfoRow("开发者", "Yafei", "打开 GitHub 主页") { openLink(DEVELOPER_URL) }
                     HorizontalDivider()
                     AboutInfoRow("源码仓库", "wiekern/mein-klicker", "打开源码仓库") { openLink(REPOSITORY_URL) }
@@ -161,7 +174,13 @@ fun AboutScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun AboutInfoRow(title: String, value: String, actionLabel: String, onClick: () -> Unit) {
+private fun AboutInfoRow(
+    title: String,
+    value: String,
+    actionLabel: String,
+    onCopy: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth()
             .clickable(role = Role.Button, onClickLabel = actionLabel, onClick = onClick)
@@ -175,6 +194,16 @@ private fun AboutInfoRow(title: String, value: String, actionLabel: String, onCl
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (onCopy != null) {
+            IconButton(onClick = onCopy) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_content_copy),
+                    contentDescription = "复制备案号",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Text("›", modifier = Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
