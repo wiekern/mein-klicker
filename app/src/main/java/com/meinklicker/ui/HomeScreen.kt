@@ -34,11 +34,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meinklicker.AppContainer
+import com.meinklicker.R
 import com.meinklicker.container
 import com.meinklicker.data.DEFAULT_PRESS_MS
 import com.meinklicker.data.Scheme
@@ -65,7 +67,7 @@ fun HomeScreen(onOpenScheme: (String) -> Unit, onOpenAbout: () -> Unit) {
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("MeinKlicker") },
+            title = { Text(stringResource(R.string.app_name)) },
             actions = { TextButton(onClick = onOpenAbout) { Text("关于") } },
         )
     }) { padding ->
@@ -169,8 +171,7 @@ private fun StatusCard() {
                 TextButton(onClick = { SystemSettings.openAutoStartSettings(context) }) { Text("去设置") }
             }
             Text(
-                "ColorOS / OriginOS 会在清理后台时关闭无障碍服务：请允许自启动和后台运行，" +
-                    "并在最近任务中下拉锁定 MeinKlicker。",
+                stringResource(R.string.background_running_hint, stringResource(R.string.app_name)),
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {

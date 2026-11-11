@@ -25,8 +25,8 @@ android {
         applicationId = "com.meinklicker"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.3.0"
+        versionCode = 8
+        versionName = "0.3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

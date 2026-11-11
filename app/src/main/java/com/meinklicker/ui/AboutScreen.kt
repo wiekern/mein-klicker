@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
@@ -100,7 +101,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     modifier = Modifier.size(88.dp).clip(RoundedCornerShape(24.dp))
                         .background(colorResource(R.color.ic_launcher_background)),
                 )
-                Text("MeinKlicker", style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
                 Text(
                     "一个纯粹的自动点击器",
                     style = MaterialTheme.typography.bodyMedium,

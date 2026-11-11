@@ -2,7 +2,8 @@
 <resources>
     <string name="trigger_diameter_value">触发区直径 %1$d dp</string>
     <string name="panel_region_hint">拖框选取面板标题等固定特征\n避开数量、计时和点击位置</string>
-    <string name="app_name">MeinKlicker</string>
-    <string name="a11y_label">MeinKlicker 自动点击</string>
+    <string name="app_name">麦恩点击器</string>
+    <string name="a11y_label">麦恩点击器</string>
+    <string name="background_running_hint">ColorOS / OriginOS 会在清理后台时关闭无障碍服务：请允许自启动和后台运行，并在最近任务中下拉锁定 %1$s。</string>
     <string name="a11y_description">用于按方案自动点击屏幕位置并显示悬浮控制栏。</string>
 </resources>
