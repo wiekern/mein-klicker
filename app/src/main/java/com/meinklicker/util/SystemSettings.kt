@@ -5,16 +5,32 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import com.meinklicker.TAG
+import com.meinklicker.service.ClickAccessibilityService
 
 /** 无障碍、电池优化、厂商自启动页的检测与跳转。 */
 object SystemSettings {
 
     fun openAccessibilitySettings(context: Context) {
-        start(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        val component = ComponentName(context, ClickAccessibilityService::class.java)
+        // 系统服务详情入口未公开为 SDK 常量，部分厂商也未提供对应 Activity。
+        val details = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+            .putExtra(Intent.EXTRA_COMPONENT_NAME, component)
+        if (start(context, details)) return
+
+        // 支持这些参数的系统设置会滚动到服务条目并高亮。
+        val serviceKey = component.flattenToString()
+        val arguments = Bundle().apply {
+            putString(":settings:fragment_args_key", serviceKey)
+        }
+        val settings = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            .putExtra(":settings:fragment_args_key", serviceKey)
+            .putExtra(":settings:show_fragment_args", arguments)
+        start(context, settings)
     }
 
     fun isIgnoringBatteryOptimizations(context: Context): Boolean =
