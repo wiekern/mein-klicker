@@ -9,12 +9,13 @@ import android.view.WindowManager.LayoutParams
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.meinklicker.R
 import com.meinklicker.data.Scheme
 import com.meinklicker.engine.RunState
 
 /**
  * 竖向悬浮控制栏。拖顶部把手移动；收起后只保留 ▶ 和 ■ 两个急用按钮。
- * 方案名不常驻显示，在 ▤ 弹出的列表里查看和切换。
+ * 方案名不常驻显示，在「切换」弹出的列表里查看和切换。
  */
 class ControlBarOverlay(
     private val context: Context,
@@ -65,19 +66,23 @@ class ControlBarOverlay(
     }
     private val stopButton = BarButton(context, "■", buttonSize) { actions.onStop() }
     private val editButton = BarButton(context, "✎", buttonSize) { actions.onEdit() }
-    private val pickButton = BarButton(context, "▤", buttonSize) { togglePicker() }
-    private val mainButton = BarButton(context, "≡", buttonSize) { actions.onOpenMain() }
+    private val newButton = IconBarButton(context, R.drawable.ic_scheme_add, "新建方案", buttonSize) {
+        picker.dismiss()
+        actions.onNewScheme()
+    }
+    private val pickButton = IconBarButton(context, R.drawable.ic_scheme_switch, "切换方案", buttonSize) { togglePicker() }
+    private val mainButton = IconBarButton(context, R.drawable.ic_open_app, "打开 App 主界面", buttonSize) { actions.onOpenMain() }
     private val collapseButton = BarButton(context, "︽", buttonSize) { setCollapsed(!collapsed) }
 
     /** 收起时隐藏的部分。 */
-    private val secondary = listOf(statusText, loopText, armButton, editButton, pickButton, mainButton)
+    private val secondary = listOf(statusText, loopText, armButton, editButton, newButton, pickButton, mainButton)
 
     private val root = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         background = roundedBg(BAR_BG, overlays.dp(12).toFloat())
         setPadding(overlays.dp(2), overlays.dp(2), overlays.dp(2), overlays.dp(4))
-        listOf(handle, statusText, loopText, runButton, armButton, stopButton, editButton, pickButton, mainButton, collapseButton)
+        listOf(handle, statusText, loopText, runButton, armButton, stopButton, editButton, newButton, pickButton, mainButton, collapseButton)
             .forEach(::addView)
     }
 
@@ -136,6 +141,7 @@ class ControlBarOverlay(
         armButton.isEnabled = armed || (state == RunState.Idle && !scheme?.triggers.isNullOrEmpty())
         stopButton.isEnabled = state is RunState.Running
         editButton.isEnabled = state == RunState.Idle
+        newButton.isEnabled = state == RunState.Idle
         pickButton.isEnabled = state == RunState.Idle
     }
 

@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.TextView
 
 internal const val BAR_BG = 0xE0263238.toInt()
@@ -33,6 +34,31 @@ internal class BarButton(context: Context, label: String, sizePx: Int, onClick: 
         gravity = Gravity.CENTER
         minWidth = sizePx
         minHeight = sizePx
+        setOnClickListener { onClick() }
+    }
+
+    override fun setEnabled(enabled: Boolean) {
+        super.setEnabled(enabled)
+        alpha = if (enabled) 1f else 0.35f
+    }
+}
+
+/** 固定大小的纯图标按钮，长按可查看说明。禁用时半透明。 */
+internal class IconBarButton(
+    context: Context,
+    iconRes: Int,
+    description: String,
+    sizePx: Int,
+    onClick: () -> Unit,
+) : ImageView(context) {
+    init {
+        layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
+        contentDescription = description
+        tooltipText = description
+        setImageResource(iconRes)
+        scaleType = ScaleType.FIT_CENTER
+        val padding = (10 * resources.displayMetrics.density).toInt()
+        setPadding(padding, padding, padding, padding)
         setOnClickListener { onClick() }
     }
 
