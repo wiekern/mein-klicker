@@ -42,6 +42,9 @@ class SchemeDetailScreenTest {
     private val repository get() = compose.activity.container.repository
 
     @Before fun openScheme() {
+        if (compose.onAllNodes(hasText("同意并进入")).fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNodeWithText("同意并进入").performClick()
+        }
         runBlocking { repository.save(scheme) }
         compose.onNodeWithText(scheme.name).performScrollTo().performClick()
     }

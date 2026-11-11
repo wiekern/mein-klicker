@@ -59,7 +59,7 @@ private const val APP_REGISTRATION_NUMBER = "粤ICP备2025384729号-3A"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(onBack: () -> Unit) {
+fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val snackbar = remember { SnackbarHostState() }
@@ -141,6 +141,8 @@ fun AboutScreen(onBack: () -> Unit) {
                     AboutInfoRow("问题与建议", "通过 GitHub 提交问题或建议", "打开 GitHub Issues") { openLink(ISSUES_URL) }
                     HorizontalDivider()
                     AboutInfoRow("开源许可", "MIT", "查看许可证") { showLicense = true }
+                    HorizontalDivider()
+                    AboutInfoRow("隐私政策", "了解数据处理与权限用途", "阅读隐私政策", onClick = onOpenPrivacyPolicy)
                 }
             }
             Text(

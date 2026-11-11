@@ -105,6 +105,10 @@ ColorOS / OriginOS 清理后台时可能关闭无障碍服务。如果悬浮栏�
 
 遇到问题或有功能建议，可在关于页点「问题与建议」前往 [GitHub Issues](https://github.com/wiekern/mein-klicker/issues)，先查看已有反馈，再提交问题或建议。
 
+在「关于 → 隐私政策」可离线阅读数据处理、权限用途、保存期限及撤销和删除方式。政策正文见 [隐私政策](app/src/main/res/raw/privacy_policy.txt)。
+
+首次启动（含尚未同意政策的旧版本升级）会显示隐私政策提示，可先阅读完整政策；选择「同意并进入」后才进入首页，选择「不同意并退出」或按返回键则退出。对同一政策版本的同意记录仅保存在本机，后续启动不重复提示；这不代表授予无障碍或其他可选功能权限。
+
 ## 从源码编译
 
 需要 JDK 17 和 Android SDK（compileSdk 34）。Android Studio Iguana 及以上可以直接打开项目根目录，等 Gradle Sync 完成后点 *Build → Build APK(s)*。
