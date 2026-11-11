@@ -3,6 +3,7 @@ package com.meinklicker.engine
 import com.meinklicker.data.DEFAULT_PRESS_MS
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.TriggerConfig
+import com.meinklicker.data.rotationError
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -14,8 +15,28 @@ import kotlinx.coroutines.ensureActive
 class ClickEngine(private val gestures: GestureDispatcher) {
 
     /** 按循环设置执行步骤列表；onProgress 的 round、step 都从 1 开始。 */
-    suspend fun runLoop(scheme: Scheme, onProgress: (round: Int, step: Int) -> Unit = { _, _ -> }) {
+    suspend fun runLoop(
+        scheme: Scheme,
+        onRotationCommitted: suspend () -> Unit = {},
+        onProgress: (round: Int, step: Int) -> Unit = { _, _ -> },
+    ) {
         if (scheme.steps.isEmpty()) return
+        val group = scheme.rotationGroup
+        if (group != null) {
+            scheme.rotationError()?.let { throw RunAborted(it) }
+            scheme.steps.forEachIndexed { index, step ->
+                if (step.id !in group.stepIds || step.id == group.nextStepId) {
+                    currentCoroutineContext().ensureActive()
+                    onProgress(1, index + 1)
+                    delay(step.delayBeforeMs)
+                    if (!gestures.tap(step.x, step.y, scheme.pressMs)) {
+                        throw RunAborted("点击未完成，已停止；请检查循环组下次执行项")
+                    }
+                    if (step.id == group.commitStepId) onRotationCommitted()
+                }
+            }
+            return
+        }
         val loop = scheme.loop
         var round = 1
         while (loop.infinite || round <= loop.count) {
@@ -43,13 +64,15 @@ class ClickEngine(private val gestures: GestureDispatcher) {
         pressMs: Long = DEFAULT_PRESS_MS,
         retryIf: suspend () -> Boolean = { false },
         onReplayed: () -> Unit = {},
+        requireSuccess: Boolean = false,
     ) {
-        gestures.tap(x, y, pressMs)
+        var completed = gestures.tap(x, y, pressMs)
         var retries = 0
         while (retries < MAX_REPLAY_RETRIES && retryIf()) {
-            gestures.tap(x, y, pressMs)
+            completed = gestures.tap(x, y, pressMs)
             retries++
         }
+        if (requireSuccess && (!completed || retryIf())) throw RunAborted("触发点击未完成，已停止，循环组进度未推进")
         onReplayed()
         delay(trigger.delayAfterMs)
     }

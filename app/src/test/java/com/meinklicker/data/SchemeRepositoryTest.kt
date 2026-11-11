@@ -19,7 +19,7 @@ class SchemeRepositoryTest {
     private val sample = Scheme(
         id = "a", name = "测试", screenWidth = 1080, screenHeight = 2400,
         triggers = listOf(TriggerConfig(540, 1800), TriggerConfig(100, 200, radiusDp = 60, delayAfterMs = 300)),
-        steps = listOf(Step(200, 300), Step(900, 2100, 150)),
+        steps = listOf(Step(200, 300, id = "first"), Step(900, 2100, 150, id = "second")),
         loop = LoopConfig(count = 5, intervalMs = 20),
         updatedAt = 123,
     )
@@ -29,6 +29,54 @@ class SchemeRepositoryTest {
     @Test
     fun missingFileStartsEmpty() {
         assertTrue(SchemeRepository(file()).schemes.value.isEmpty())
+    }
+
+    @Test
+    fun legacyStepsGetStableIdsAndNewStepsDoNotReuseDeletedIds() = runTest {
+        val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
+        repo.save(sample.copy(steps = listOf(Step(1, 1), Step(2, 2))))
+        val original = repo.get("a")!!.steps
+        assertEquals(original, SchemeRepository(file()).get("a")!!.steps)
+        repo.save(repo.get("a")!!.copy(steps = listOf(original.last(), Step(3, 3))))
+        val updated = repo.get("a")!!.steps
+        assertEquals(original.last().id, updated.first().id)
+        assertEquals(2, updated.map { it.id }.distinct().size)
+    }
+
+    @Test
+    fun rotationProgressSurvivesReloadAndStaleSettingsSave() = runTest {
+        val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
+        val rotating = sample.copy(
+            steps = sample.steps + Step(10, 10, id = "send"),
+            rotationGroup = RotationGroup(listOf("first", "second"), "send", "first"),
+        )
+        repo.save(rotating)
+        repo.advanceRotation(rotating)
+        assertEquals("second", SchemeRepository(file()).get("a")!!.rotationGroup!!.nextStepId)
+        repo.save(rotating.copy(name = "renamed"))
+        assertEquals("second", repo.get("a")!!.rotationGroup!!.nextStepId)
+        assertEquals("renamed", repo.get("a")!!.name)
+        repo.advanceRotation(repo.get("a")!!)
+        assertEquals("first", repo.get("a")!!.rotationGroup!!.nextStepId)
+        repo.save(rotating.copy(rotationGroup = rotating.rotationGroup!!.copy(nextStepId = "second")),
+            overrideRotationProgress = true)
+        assertEquals("second", SchemeRepository(file()).get("a")!!.rotationGroup!!.nextStepId)
+    }
+
+    @Test
+    fun staleRunCannotOverrideCalibrationOrRecreateDeletedScheme() = runTest {
+        val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
+        val rotating = sample.copy(
+            steps = sample.steps + Step(10, 10, id = "send"),
+            rotationGroup = RotationGroup(listOf("first", "second"), "send", "first"),
+        )
+        repo.save(rotating)
+        repo.save(rotating.copy(rotationGroup = rotating.rotationGroup!!.copy(nextStepId = "second")), true)
+        repo.advanceRotation(rotating)
+        assertEquals("second", repo.get("a")!!.rotationGroup!!.nextStepId)
+        repo.delete("a")
+        repo.advanceRotation(rotating)
+        assertNull(repo.get("a"))
     }
 
     @Test

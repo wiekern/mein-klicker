@@ -32,7 +32,10 @@ class AppContainer(context: Context) {
             _serviceFlow.value?.tapForRun(x, y, durationMs) ?: false
     }
 
-    val runController = RunController(ClickEngine(gestures), scope) { repository.get(it) }
+    val runController = RunController(ClickEngine(gestures), scope,
+        advanceRotation = repository::advanceRotation,
+        onError = { _serviceFlow.value?.showRunError(it) },
+    ) { repository.get(it) }
 
     private val _selectedSchemeId = MutableStateFlow(prefs.getString(KEY_SELECTED, null))
     /** 悬浮栏当前选中的方案。 */

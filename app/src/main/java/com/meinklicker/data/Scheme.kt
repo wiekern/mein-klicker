@@ -2,6 +2,7 @@ package com.meinklicker.data
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.util.UUID
 
 /** 坐标一律为屏幕绝对像素，与 dispatchGesture 的坐标系一致。 */
 @Serializable
@@ -21,6 +22,7 @@ data class Scheme(
     val pressMs: Long = DEFAULT_PRESS_MS,
     /** 可选的面板存在检测；旧方案默认不检测。 */
     val panelCheck: PanelCheck? = null,
+    val rotationGroup: RotationGroup? = null,
     val updatedAt: Long,
 )
 
@@ -38,7 +40,65 @@ data class PanelCheck(
 )
 
 @Serializable
-data class Step(val x: Int, val y: Int, val delayBeforeMs: Long = DEFAULT_DELAY_MS)
+data class Step(
+    val x: Int,
+    val y: Int,
+    val delayBeforeMs: Long = DEFAULT_DELAY_MS,
+    val id: String = "",
+)
+
+@Serializable
+data class RotationGroup(
+    val stepIds: List<String>,
+    val commitStepId: String,
+    val nextStepId: String,
+)
+
+/** 组内顺序始终跟随方案步骤顺序。 */
+fun Scheme.rotationMembers(): List<Step> = steps.filter { it.id in rotationGroup?.stepIds.orEmpty() }
+
+fun Scheme.rotationError(): String? {
+    val group = rotationGroup ?: return null
+    val members = rotationMembers()
+    return when {
+        group.stepIds.size < 2 -> "循环组至少需要 2 个步骤，请重新选择组内步骤"
+        group.stepIds.distinct().size != group.stepIds.size || members.size != group.stepIds.size ->
+            "循环组包含已删除或重复的步骤，请重新选择组内步骤"
+        group.nextStepId !in group.stepIds -> "请指定下次执行的组内步骤"
+        group.commitStepId in group.stepIds || steps.none { it.id == group.commitStepId } ->
+            "请选择组外的进度确认步骤（例如出征）"
+        steps.indexOfFirst { it.id == group.commitStepId } <= steps.indexOfLast { it.id in group.stepIds } ->
+            "进度确认步骤必须位于所有组内步骤之后"
+        else -> null
+    }
+}
+
+/** 为旧方案及新增步骤分配稳定标识，不依赖坐标或当前显示编号。 */
+internal fun Scheme.withStepIds(): Scheme {
+    val used = steps.map { it.id }.filter { it.isNotBlank() }.toMutableSet()
+    return copy(steps = steps.mapIndexed { index, step ->
+        if (step.id.isNotBlank()) step else {
+            var salt = 0
+            var stepId: String
+            do {
+                stepId = UUID.nameUUIDFromBytes("$id:step:$index:${salt++}".toByteArray(Charsets.UTF_8)).toString()
+            } while (!used.add(stepId))
+            step.copy(id = stepId)
+        }
+    })
+}
+
+/** 悬浮编辑器删点后保留剩余成员身份；确认步骤被删时保留无效状态，要求重新指定。 */
+fun Scheme.reconcileRotation(): Scheme {
+    val group = rotationGroup ?: return this
+    if (steps.isEmpty()) return copy(rotationGroup = null)
+    val members = rotationMembers()
+    return copy(rotationGroup = group.copy(
+        stepIds = members.map { it.id },
+        nextStepId = group.nextStepId.takeIf { id -> members.any { it.id == id } }
+            ?: members.firstOrNull()?.id.orEmpty(),
+    ))
+}
 
 @Serializable
 data class TriggerConfig(

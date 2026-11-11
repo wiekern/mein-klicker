@@ -354,6 +354,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     }
 
     /** vivo 等 ROM 在通知权限关闭时会屏蔽 Toast，所以用悬浮窗提示。 */
+    fun showRunError(text: String) = toast(text)
+
     private fun toast(text: String) {
         Log.i(TAG, "message: $text")
         messages.show(text)

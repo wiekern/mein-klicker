@@ -28,9 +28,29 @@ class SchemeRepository(
     fun get(id: String): Scheme? = _schemes.value.find { it.id == id }
 
     /** 按 id 新增或替换。 */
-    suspend fun save(scheme: Scheme) = update { list ->
+    suspend fun save(scheme: Scheme, overrideRotationProgress: Boolean = false) = update { list ->
         val index = list.indexOfFirst { it.id == scheme.id }
-        if (index < 0) list + scheme else list.toMutableList().also { it[index] = scheme }
+        var updated = scheme.withStepIds()
+        val previous = list.getOrNull(index)?.rotationGroup
+        val group = updated.rotationGroup
+        if (!overrideRotationProgress && previous != null && group != null && previous.nextStepId in group.stepIds) {
+            updated = updated.copy(rotationGroup = group.copy(nextStepId = previous.nextStepId))
+        }
+        if (index < 0) list + updated else list.toMutableList().also { it[index] = updated }
+    }
+
+    /** 只推进本轮启动时的组，绝不使用运行快照覆盖其他设置或恢复已删除的方案。 */
+    suspend fun advanceRotation(snapshot: Scheme) = update { list ->
+        val expected = snapshot.rotationGroup ?: return@update list
+        list.map { current ->
+            val group = current.rotationGroup
+            if (current.id != snapshot.id || group != expected) current else {
+                val members = current.rotationMembers()
+                val index = members.indexOfFirst { it.id == expected.nextStepId }
+                check(index >= 0 && current.rotationError() == null) { "循环组配置已改变，请检查下次执行项" }
+                current.copy(rotationGroup = group.copy(nextStepId = members[(index + 1) % members.size].id))
+            }
+        }
     }
 
     suspend fun delete(id: String) = update { list -> list.filterNot { it.id == id } }
@@ -44,7 +64,7 @@ class SchemeRepository(
     private fun load(): List<Scheme> {
         if (!file.exists()) return emptyList()
         return try {
-            json.decodeFromString<SchemeFile>(file.readText()).schemes.map { it.migrated() }
+            json.decodeFromString<SchemeFile>(file.readText()).schemes.map { it.migrated().withStepIds() }
         } catch (e: Exception) {
             file.renameTo(File(file.parentFile, file.name + ".corrupt"))
             emptyList()
