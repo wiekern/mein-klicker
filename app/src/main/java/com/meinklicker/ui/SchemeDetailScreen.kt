@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meinklicker.container
 import com.meinklicker.data.DEFAULT_PRESS_MS
 import com.meinklicker.data.LoopConfig
@@ -42,6 +43,8 @@ import com.meinklicker.data.MIN_DELAY_MS
 import com.meinklicker.data.MIN_PRESS_MS
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.triggerLabel
+import com.meinklicker.data.rotationError
+import com.meinklicker.engine.RunState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -60,6 +63,10 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var panelCheckEnabled by remember(scheme.id) { mutableStateOf(scheme.panelCheck?.enabled == true) }
     var saving by remember(scheme.id) { mutableStateOf(false) }
     var saveError by remember(scheme.id) { mutableStateOf<String?>(null) }
+    var rotationGroup by remember(scheme.id, scheme.rotationGroup, scheme.steps) { mutableStateOf(scheme.rotationGroup) }
+    var calibrateRotation by remember(scheme.id, scheme.rotationGroup) { mutableStateOf(false) }
+    val runState by container.runController.state.collectAsStateWithLifecycle()
+    val editable = runState !is RunState.Running && !saving
     val triggerDelays = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.delayAfterMs}" }.toTypedArray()) }
     val triggerRadii = remember(scheme.id, scheme.triggers) { mutableStateListOf(*scheme.triggers.map { "${it.radiusDp}" }.toTypedArray()) }
     val stepDelays = remember(scheme.id, scheme.steps) { mutableStateListOf(*scheme.steps.map { "${it.delayBeforeMs}" }.toTypedArray()) }
@@ -71,18 +78,24 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     val triggerRadiusValues = triggerRadii.map { it.toIntOrNull()?.takeIf { v -> v in 10..200 } }
     val stepDelayValues = stepDelays.map { it.toLongOrNull()?.takeIf { v -> v >= MIN_DELAY_MS } }
     val valid = name.isNotBlank() &&
-        (infinite || countValue != null) &&
-        intervalValue != null &&
+        (rotationGroup != null || ((infinite || countValue != null) && intervalValue != null)) &&
         pressValue != null &&
         triggerDelayValues.all { it != null } &&
         triggerRadiusValues.all { it != null } &&
-        stepDelayValues.all { it != null }
+        stepDelayValues.all { it != null } &&
+        scheme.copy(rotationGroup = rotationGroup).rotationError() == null
 
     fun save() {
         if (!valid || saving) return
+        if (container.runController.state.value is RunState.Running || container.runController.isCommitting) {
+            saveError = "请先停止运行，再保存方案设置或校准进度。"
+            return
+        }
         val updated = scheme.copy(
             name = name.trim(),
-            loop = LoopConfig(count = if (infinite) 0 else countValue!!, intervalMs = intervalValue!!),
+            loop = if (rotationGroup != null) scheme.loop else
+                LoopConfig(count = if (infinite) 0 else countValue!!, intervalMs = intervalValue!!),
+            rotationGroup = rotationGroup,
             pressMs = pressValue!!,
             panelCheck = scheme.panelCheck?.copy(enabled = panelCheckEnabled),
             triggers = scheme.triggers.mapIndexed { i, t ->
@@ -94,7 +107,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
         saving = true
         container.scope.launch {
             try {
-                container.repository.save(updated)
+                container.repository.save(updated, overrideRotationProgress = calibrateRotation)
                 onBack()
             } catch (e: CancellationException) {
                 throw e
@@ -114,7 +127,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
                 navigationIcon = { TextButton(enabled = !saving, onClick = onBack) { Text("返回") } },
                 // 局部函数引用的相等性不包含捕获值，会让按钮保留旧的校验结果。
                 actions = {
-                    TextButton(enabled = valid && !saving, onClick = { save() }) {
+                    TextButton(enabled = valid && editable, onClick = { save() }) {
                         Text(if (saving) "保存中…" else "保存")
                     }
                 },
@@ -144,17 +157,27 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
                     TextButton(onClick = { showPressTips = true }) { Text("ⓘ") }
                 }
             }
-            item { SectionTitle("循环") }
+            item { SectionTitle("循环组") }
             item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("无限循环", Modifier.weight(1f))
-                    Switch(checked = infinite, onCheckedChange = { infinite = it })
+                RotationGroupEditor(scheme, rotationGroup, editable) { group, calibrate ->
+                    rotationGroup = group
+                    calibrateRotation = calibrateRotation || calibrate
                 }
             }
-            if (!infinite) {
-                item { NumberField("循环次数", count, countValue == null, "≥ 1") { count = it } }
+            if (rotationGroup == null) {
+                item { SectionTitle("循环") }
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("无限循环", Modifier.weight(1f))
+                        Switch(checked = infinite, onCheckedChange = { infinite = it })
+                    }
+                }
+                if (!infinite) {
+                    item { NumberField("循环次数", count, countValue == null, "≥ 1") { count = it } }
+                }
+                item { NumberField("轮间隔 (ms)", interval, intervalValue == null, "≥ 0") { interval = it } }
             }
-            item { NumberField("轮间隔 (ms)", interval, intervalValue == null, "≥ 0") { interval = it } }
+            if (!editable && !saving) item { Text("正在运行，请先停止后再修改循环组或保存。") }
 
             item { SectionTitle("面板消失自动停止") }
             item {

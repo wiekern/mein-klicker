@@ -4,6 +4,9 @@ import android.graphics.Rect
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -73,6 +76,50 @@ class SchemeDetailScreenTest {
         // 返回列表后重新进入，界面也应显示保存后的值。
         compose.onNodeWithText(scheme.name).performScrollTo().performClick()
         compose.onNode(hasSetTextAction() and hasText("循环次数") and hasText("7")).assertExists()
+    }
+
+    @Test fun configuresCalibratesAndDisablesRotationWithoutLosingLoopSettings() {
+        runBlocking {
+            repository.save(repository.get(scheme.id)!!.copy(
+                steps = repository.get(scheme.id)!!.steps + Step(500, 600),
+            ))
+        }
+        val list = compose.onNode(hasScrollToIndexAction())
+        list.performScrollToNode(hasContentDescription("启用循环组"))
+        compose.onNodeWithContentDescription("启用循环组").performClick()
+        compose.onNodeWithText("保存").assertIsNotEnabled()
+        list.performScrollToNode(hasText("选择组内步骤（0 项）"))
+        compose.onNodeWithText("选择组内步骤（0 项）").performClick()
+        compose.onNodeWithText("第 1 步 (100, 200)").performClick()
+        compose.onNodeWithText("第 2 步 (300, 400)").performClick()
+        compose.onNodeWithText("完成").performClick()
+        list.performScrollToNode(hasText("进度确认步骤：未选择"))
+        compose.onNodeWithText("进度确认步骤：未选择").performClick()
+        compose.onNodeWithText("第 3 步 (500, 600)").performClick()
+        list.performScrollToNode(hasText("下次执行：组内第 1 项 · 第 1 步 (100, 200)"))
+        compose.onNodeWithText("下次执行：组内第 1 项 · 第 1 步 (100, 200)").performClick()
+        compose.onNodeWithText("组内第 2 项 · 第 2 步 (300, 400)").performClick()
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5_000) { repository.get(scheme.id)?.rotationGroup != null }
+        val reloaded = SchemeRepository(File(compose.activity.filesDir, "schemes.json")).get(scheme.id)!!
+        assertEquals(reloaded.steps.take(2).map { it.id }, reloaded.rotationGroup!!.stepIds)
+        assertEquals(reloaded.steps[2].id, reloaded.rotationGroup!!.commitStepId)
+        assertEquals(reloaded.steps[1].id, reloaded.rotationGroup!!.nextStepId)
+        assertEquals(scheme.loop, reloaded.loop)
+
+        compose.onNodeWithText(scheme.name).performScrollTo().performClick()
+        list.performScrollToNode(hasText("下次执行：组内第 2 项 · 第 2 步 (300, 400)"))
+        compose.onNodeWithText("下次执行：组内第 2 项 · 第 2 步 (300, 400)").performClick()
+        compose.onNodeWithText("组内第 1 项 · 第 1 步 (100, 200)").performClick()
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5_000) { repository.get(scheme.id)?.rotationGroup?.nextStepId == reloaded.steps[0].id }
+
+        compose.onNodeWithText(scheme.name).performScrollTo().performClick()
+        list.performScrollToNode(hasContentDescription("启用循环组"))
+        compose.onNodeWithContentDescription("启用循环组").performClick()
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5_000) { repository.get(scheme.id)?.rotationGroup == null }
+        assertEquals(scheme.loop, repository.get(scheme.id)!!.loop)
     }
 
     @Test fun laterStepsCanScrollAboveKeyboardWithoutHidingIt() {

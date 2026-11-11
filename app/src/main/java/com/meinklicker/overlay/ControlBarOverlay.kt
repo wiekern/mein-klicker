@@ -11,6 +11,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.meinklicker.R
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.rotationError
+import com.meinklicker.data.rotationMembers
 import com.meinklicker.engine.RunState
 
 /**
@@ -129,6 +131,7 @@ class ControlBarOverlay(
             is RunState.Armed -> "待命"
             is RunState.Running -> when {
                 state.round == 0 -> "运行"
+                scheme?.rotationGroup != null -> "第${state.step}步"
                 scheme == null || scheme.loop.infinite -> "第${state.round}轮"
                 else -> "${state.round}/${scheme.loop.count}轮"
             }
@@ -153,7 +156,13 @@ class ControlBarOverlay(
         return Rect(loc[0], loc[1], loc[0] + root.width, loc[1] + root.height)
     }
 
-    private fun loopBadge(scheme: Scheme) = if (scheme.loop.infinite) "∞" else "×${scheme.loop.count}"
+    private fun loopBadge(scheme: Scheme): String {
+        val group = scheme.rotationGroup
+        return if (group != null) {
+            if (scheme.rotationError() != null) "组待修复"
+            else "组${scheme.rotationMembers().indexOfFirst { it.id == group.nextStepId } + 1}/${group.stepIds.size}"
+        } else if (scheme.loop.infinite) "∞" else "×${scheme.loop.count}"
+    }
 
     private fun setCollapsed(value: Boolean) {
         collapsed = value

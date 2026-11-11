@@ -22,6 +22,7 @@ import com.meinklicker.data.PanelCheck
 import com.meinklicker.data.Step
 import com.meinklicker.data.TriggerConfig
 import com.meinklicker.data.triggerLabel
+import com.meinklicker.data.reconcileRotation
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +53,7 @@ class MarkerEditorOverlay(
         val isTrigger: Boolean,
         /** 只对触发点有意义；编辑器里不改，在主界面的方案设置页修改。 */
         val radiusDp: Int = DEFAULT_TRIGGER_RADIUS_DP,
+        val stepId: String = UUID.randomUUID().toString(),
     ) {
         val view = MarkerView(context, if (isTrigger) TRIGGER_COLOR else STEP_COLOR)
         val params = overlays.newParams(width = markerSize, height = markerSize)
@@ -184,7 +186,7 @@ class MarkerEditorOverlay(
 
     fun show() {
         original?.triggers?.forEach { triggers += Marker(it.x, it.y, it.delayAfterMs, isTrigger = true, it.radiusDp) }
-        original?.steps?.forEach { steps += Marker(it.x, it.y, it.delayBeforeMs, isTrigger = false) }
+        original?.steps?.forEach { steps += Marker(it.x, it.y, it.delayBeforeMs, isTrigger = false, stepId = it.id) }
         // 连线先添加，标记盖在线上面
         lines.show()
         triggers.forEach { overlays.add(it.view, it.params) }
@@ -289,7 +291,14 @@ class MarkerEditorOverlay(
 
     private fun relabel() {
         triggers.forEachIndexed { i, m -> m.view.label = triggerLabel(i, triggers.size) }
-        steps.forEachIndexed { i, m -> m.view.label = "${i + 1}" }
+        val members = steps.filter { it.stepId in original?.rotationGroup?.stepIds.orEmpty() }
+        steps.forEachIndexed { i, m ->
+            m.view.label = when {
+                m in members -> "G${members.indexOf(m) + 1}"
+                m.stepId == original?.rotationGroup?.commitStepId -> "${i + 1}✓"
+                else -> "${i + 1}"
+            }
+        }
         // 已有触发点时按钮为红色圆底（与待命按钮、触发区同色）
         triggerButton.background = if (triggers.isNotEmpty()) roundedBg(TRIGGER_COLOR, overlays.dp(8).toFloat()) else null
         checkButton.background = if (panelCheck?.enabled == true) roundedBg(STEP_COLOR, overlays.dp(8).toFloat()) else null
@@ -309,7 +318,7 @@ class MarkerEditorOverlay(
             return
         }
         val triggers = triggers.map { TriggerConfig(it.x, it.y, it.radiusDp, it.delayMs) }
-        val steps = steps.map { Step(it.x, it.y, it.delayMs) }
+        val steps = steps.map { Step(it.x, it.y, it.delayMs, id = it.stepId) }
         // 编辑已有方案时保留其他设置（循环、按压时长等）
         val scheme = original?.copy(
             screenWidth = screen.width,
@@ -329,7 +338,7 @@ class MarkerEditorOverlay(
             panelCheck = panelCheck,
             updatedAt = System.currentTimeMillis(),
         )
-        finish(scheme)
+        finish(scheme.reconcileRotation())
     }
 
     private fun finish(result: Scheme?) {
@@ -387,7 +396,12 @@ class MarkerEditorOverlay(
             val label = triggerLabel(triggers.indexOf(m), triggers.size)
             if (label == "T") "触发点" else "触发点 $label"
         } else {
-            "第 ${steps.indexOf(m) + 1} 步"
+            val memberIndex = steps.filter { it.stepId in original?.rotationGroup?.stepIds.orEmpty() }.indexOf(m)
+            "第 ${steps.indexOf(m) + 1} 步" + when {
+                memberIndex >= 0 -> " · 循环组第 ${memberIndex + 1} 项"
+                m.stepId == original?.rotationGroup?.commitStepId -> " · 进度确认"
+                else -> ""
+            }
         }
         panelX.text = "X ${m.x}"
         panelY.text = "Y ${m.y}"

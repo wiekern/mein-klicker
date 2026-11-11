@@ -42,6 +42,8 @@ import com.meinklicker.AppContainer
 import com.meinklicker.container
 import com.meinklicker.data.DEFAULT_PRESS_MS
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.rotationError
+import com.meinklicker.data.rotationMembers
 import com.meinklicker.engine.RunState
 import com.meinklicker.util.ScreenInfo
 import com.meinklicker.util.SystemSettings
@@ -258,7 +260,11 @@ private fun SchemeCard(
 }
 
 private fun Scheme.summary(): String {
-    val loopText = if (loop.infinite) "无限循环" else "循环 ${loop.count} 次"
+    val group = rotationGroup
+    val loopText = if (group != null) {
+        if (rotationError() != null) "循环组待修复"
+        else "循环组下次 ${rotationMembers().indexOfFirst { it.id == group.nextStepId } + 1}/${group.stepIds.size}"
+    } else if (loop.infinite) "无限循环" else "循环 ${loop.count} 次"
     val triggerText = if (triggers.isNotEmpty()) "${triggers.size} 个触发点" else "无触发点"
     val time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(updatedAt))
     val pressText = if (pressMs != DEFAULT_PRESS_MS) " · 按压 $pressMs ms" else ""
