@@ -7,12 +7,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -34,7 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -189,7 +195,7 @@ private fun StatusCard() {
             ) { SystemSettings.requestIgnoreBatteryOptimizations(context) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("自启动 / 后台运行", Modifier.weight(1f))
-                TextButton(onClick = { SystemSettings.openAutoStartSettings(context) }) { Text("去设置") }
+                StatusActionButton("去设置") { SystemSettings.openAutoStartSettings(context) }
             }
             Text(
                 stringResource(R.string.background_running_hint, stringResource(R.string.app_name)),
@@ -231,11 +237,35 @@ private fun StatusRow(
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f))
+        if (ok) {
+            val endPadding = ButtonDefaults.TextButtonContentPadding.calculateEndPadding(LocalLayoutDirection.current)
+            Text(
+                okText,
+                Modifier.padding(end = endPadding),
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        } else {
+            Text(badText, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelLarge)
+            StatusActionButton(action, onAction)
+        }
+    }
+}
+
+@Composable
+private fun StatusActionButton(label: String, onClick: () -> Unit) {
+    val padding = ButtonDefaults.TextButtonContentPadding
+    val direction = LocalLayoutDirection.current
+    // Fill the button's minimum content width so short labels still align with the status text.
+    val minLabelWidth = ButtonDefaults.MinWidth -
+        padding.calculateStartPadding(direction) - padding.calculateEndPadding(direction)
+    TextButton(onClick = onClick, contentPadding = padding) {
         Text(
-            if (ok) okText else badText,
-            color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            label,
+            Modifier.widthIn(min = minLabelWidth),
+            textAlign = TextAlign.End,
+            style = MaterialTheme.typography.labelLarge,
         )
-        if (!ok) TextButton(onClick = onAction) { Text(action) }
     }
 }
 
