@@ -91,7 +91,11 @@ fun HomeScreen(
                     Box {
                         TextButton(enabled = !backup.busy, onClick = { backupMenu = true }) { Text("备份") }
                         DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
-                            DropdownMenuItem(text = { Text("导入方案") }, onClick = {
+                            DropdownMenuItem(text = { Text("从微信导入") }, onClick = {
+                                backupMenu = false
+                                backup.importFromWeChat()
+                            })
+                            DropdownMenuItem(text = { Text("从文件导入") }, onClick = {
                                 backupMenu = false
                                 backup.importFile()
                             })

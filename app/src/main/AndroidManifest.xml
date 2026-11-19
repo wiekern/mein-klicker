@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- 用于跳转"忽略电池优化"对话框 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <queries>
+        <package android:name="com.tencent.mm" />
+    </queries>
 
     <application
         android:name=".App"
@@ -35,7 +40,19 @@
                     android:scheme="content"
                     android:host="*"
                     android:mimeType="*/*"
-                    android:pathPattern=".*\\.mkbackup" />
+                    android:pathPattern=".*\\.mkbackup"
+                    android:pathSuffix=".mkbackup"
+                    tools:targetApi="s" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:scheme="content"
+                    android:host="*"
+                    android:pathPattern=".*\\.mkbackup"
+                    android:pathSuffix=".mkbackup"
+                    tools:targetApi="s" />
             </intent-filter>
         </activity>
 
