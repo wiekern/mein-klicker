@@ -7,7 +7,7 @@ import android.graphics.Paint
 import android.view.View
 
 /** 半透明圆点 + 编号 + 中心十字。十字中心就是点击坐标。 */
-internal class MarkerView(context: Context, private val fillColor: Int) : View(context) {
+internal class MarkerView(context: Context, fillColor: Int) : View(context) {
     var showCircle = true
         set(value) {
             field = value
@@ -22,6 +22,12 @@ internal class MarkerView(context: Context, private val fillColor: Int) : View(c
 
     private val density = resources.displayMetrics.density
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fillColor }
+    var markerColor: Int
+        get() = fill.color
+        set(value) {
+            fill.color = value
+            invalidate()
+        }
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.STROKE

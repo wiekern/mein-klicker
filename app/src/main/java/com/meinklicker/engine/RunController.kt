@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 sealed interface RunState {
     data object Idle : RunState
     data class Armed(val schemeId: String) : RunState
+    class Calibrating(val schemeId: String) : RunState
     data class Running(
         val schemeId: String,
         val round: Int,
@@ -73,6 +74,23 @@ class RunController(
         if (scheme.triggers.isEmpty() || !validRotation(scheme)) return false
         _state.value = RunState.Armed(schemeId)
         return true
+    }
+
+    /** 选点和写入校准进度期间，触发请求一律拒绝。 */
+    fun beginRotationCalibration(): RunState.Calibrating? {
+        val armed = _state.value as? RunState.Armed ?: return null
+        if (isCommitting || editing) return null
+        val scheme = lookup(armed.schemeId) ?: return null
+        if (scheme.triggers.isEmpty() || scheme.rotationGroup == null || scheme.rotationError() != null) return null
+        return RunState.Calibrating(armed.schemeId).also { _state.value = it }
+    }
+
+    fun finishRotationCalibration(session: RunState.Calibrating) {
+        if (_state.value !== session) return
+        val scheme = lookup(session.schemeId)
+        _state.value = if (scheme != null && scheme.triggers.isNotEmpty() && scheme.rotationError() == null) {
+            RunState.Armed(session.schemeId)
+        } else RunState.Idle
     }
 
     /**

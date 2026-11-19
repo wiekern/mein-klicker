@@ -53,6 +53,21 @@ class SchemeRepository(
         }
     }
 
+    /** 按用户看到的组和点位校准进度，保留最新方案的其余设置。 */
+    suspend fun calibrateRotation(snapshot: Scheme, stepId: String) = update { list ->
+        val index = list.indexOfFirst { it.id == snapshot.id }
+        val current = list.getOrNull(index)
+        val group = current?.rotationGroup
+        check(current != null && group != null && group == snapshot.rotationGroup &&
+            current.rotationError() == null && current.rotationMembers() == snapshot.rotationMembers()) {
+            "循环组或点位已改变，请重新选择"
+        }
+        check(stepId in group.stepIds) { "请选择一个组内点位" }
+        list.toMutableList().apply {
+            this[index] = current.copy(rotationGroup = group.copy(nextStepId = stepId))
+        }
+    }
+
     suspend fun delete(id: String) = update { list -> list.filterNot { it.id == id } }
 
     private suspend fun update(transform: (List<Scheme>) -> List<Scheme>) = mutex.withLock {

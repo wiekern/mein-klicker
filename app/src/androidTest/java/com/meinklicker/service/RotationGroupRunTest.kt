@@ -1,5 +1,7 @@
 package com.meinklicker.service
 
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.graphics.Rect
 import android.app.UiAutomation
 import android.os.SystemClock
 import android.view.Gravity
@@ -54,10 +56,23 @@ class RotationGroupRunTest {
         }
     }
 
+    private fun textBounds(text: String): Rect? = automation.windows.firstNotNullOfOrNull { window ->
+        val node = window.root?.findAccessibilityNodeInfosByText(text)
+            ?.firstOrNull { it.text?.toString() == text } ?: return@firstNotNullOfOrNull null
+        Rect().also(node::getBoundsInScreen).takeUnless { it.isEmpty }
+    }
+
+    private fun tapText(text: String) {
+        await("找不到 $text") { textBounds(text) != null }
+        val bounds = checkNotNull(textBounds(text))
+        tap(bounds.centerX(), bounds.centerY())
+    }
+
     @Test fun realTriggersAndDirectRunRotateOneMemberAndPersistAfterEachConfirmation() {
         val previous = shell("settings get secure enabled_accessibility_services")
         val previousEnabled = shell("settings get secure accessibility_enabled")
         val selection = context.container.selectedSchemeId.value
+        val barEnabled = context.container.controlBarEnabled.value
         val component = "${context.packageName}/${ClickAccessibilityService::class.java.name}"
         val services = previous.takeUnless { it == "null" || it.isEmpty() }?.split(":").orEmpty()
         val id = "rotation-gesture-test-${UUID.randomUUID()}"
@@ -87,7 +102,10 @@ class RotationGroupRunTest {
                 shell("settings put secure accessibility_enabled 1")
                 await("无障碍服务未连接") { context.container.serviceFlow.value != null }
                 val service = context.container.serviceFlow.value!!
-                // 本测试无需截图；由 Activity 验证焦点，避免依赖 UiAutomation 下服务的节点缓存。
+                automation.serviceInfo = automation.serviceInfo.apply {
+                    flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                }
+                // 由 Activity 验证焦点，避免依赖 UiAutomation 下服务的节点缓存。
                 scenario.onActivity { assertTrue("目标窗口未激活", it.hasWindowFocus()) }
                 val points = mutableMapOf<String, Pair<Int, Int>>()
                 lateinit var scheme: Scheme
@@ -137,6 +155,39 @@ class RotationGroupRunTest {
                 await("回到首项后直接运行未完成") { events.size == 18 && context.container.runController.state.value == RunState.Idle }
                 assertEquals(listOf("before", "a", "send", "after"), events.toList().takeLast(4))
                 assertEquals("b", nextFromDisk())
+
+                instrumentation.runOnMainSync {
+                    context.container.setControlBarEnabled(true)
+                    context.container.setMainUiVisible(false)
+                    service.onArm()
+                }
+                tapText("组2/3")
+                await("未显示原先的 G2") { textBounds("校准下次执行 · G2") != null }
+                val trigger = points.getValue("join1")
+                val lastMember = points.getValue("c")
+                tap(trigger.first, trigger.second)
+                tap(lastMember.first, lastMember.second)
+                await("未从画面选中 G3") { textBounds("校准下次执行 · G3") != null }
+                assertEquals(18, events.size)
+                assertEquals("b", nextFromDisk())
+                tapText("取消")
+                await("取消后未回到待命") { context.container.runController.state.value == RunState.Armed(id) }
+                assertEquals("b", nextFromDisk())
+
+                tapText("组2/3")
+                await("未重新打开校准面板") { textBounds("校准下次执行 · G2") != null }
+                tap(lastMember.first, lastMember.second)
+                tapText("确认")
+                await("校准后未继续待命") { context.container.runController.state.value == RunState.Armed(id) }
+                await("悬浮栏未显示新进度") { textBounds("组3/3") != null }
+                assertEquals("c", nextFromDisk())
+                assertEquals(18, events.size)
+                tap(trigger.first, trigger.second)
+                await("校准后的触发未完成：$events") {
+                    events.size == 23 && context.container.runController.state.value == RunState.Armed(id)
+                }
+                assertEquals(listOf("join1", "before", "c", "send", "after"), events.toList().takeLast(5))
+                assertEquals("a", nextFromDisk())
             }
         } finally {
             runBlocking {
@@ -144,6 +195,7 @@ class RotationGroupRunTest {
                     context.container.runController.reset()
                     context.container.repository.delete(id)
                     context.container.selectScheme(selection)
+                    context.container.setControlBarEnabled(barEnabled)
                 }
             }
             if (previous == "null") shell("settings delete secure enabled_accessibility_services")

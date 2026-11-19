@@ -66,6 +66,27 @@ class RotationGroupTest {
         assertEquals("b", current.rotationGroup!!.nextStepId)
     }
 
+    @Test fun calibrationBlocksTriggersAndStaleSessionsCannotResumeOrEndAnotherSession() = runTest {
+        val current = scheme()
+        val fake = FakeGestureDispatcher(testScheduler)
+        val rc = RunController(ClickEngine(fake), backgroundScope) { current }
+        assertEquals(null, rc.beginRotationCalibration())
+        assertTrue(rc.arm(current.id))
+        val first = checkNotNull(rc.beginRotationCalibration())
+        assertFalse(rc.onTriggerTapped(0, 90, 90))
+        runCurrent()
+        assertTrue(fake.taps.isEmpty())
+        rc.finishRotationCalibration(first)
+        assertEquals(RunState.Armed(current.id), rc.state.value)
+
+        val second = checkNotNull(rc.beginRotationCalibration())
+        rc.finishRotationCalibration(first)
+        assertTrue(rc.state.value === second)
+        rc.disarm()
+        rc.finishRotationCalibration(second)
+        assertEquals(RunState.Idle, rc.state.value)
+    }
+
     @Test fun stopBeforeCommitKeepsCurrentButStopAfterCommitKeepsNext() = runTest {
         var current = scheme()
         val rc = RunController(ClickEngine(FakeGestureDispatcher(testScheduler)), backgroundScope,

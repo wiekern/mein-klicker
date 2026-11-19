@@ -80,6 +80,36 @@ class SchemeRepositoryTest {
     }
 
     @Test
+    fun calibrationUpdatesOnlyProgressAndPersistsIt() = runTest {
+        val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
+        val scheme = sample.copy(
+            steps = sample.steps + Step(10, 10, id = "send"),
+            rotationGroup = RotationGroup(listOf("first", "second"), "send", "first"),
+        )
+        val renamed = scheme.copy(name = "new name")
+        repo.save(renamed)
+        repo.calibrateRotation(scheme, "second")
+        assertEquals(renamed.copy(rotationGroup = renamed.rotationGroup!!.copy(nextStepId = "second")),
+            SchemeRepository(file()).get(scheme.id))
+    }
+
+    @Test
+    fun calibrationRejectsStaleCoordinatesAndDeletedScheme() = runTest {
+        val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
+        val scheme = sample.copy(
+            steps = sample.steps + Step(10, 10, id = "send"),
+            rotationGroup = RotationGroup(listOf("first", "second"), "send", "first"),
+        )
+        val moved = scheme.copy(steps = listOf(scheme.steps.first().copy(x = 20)) + scheme.steps.drop(1))
+        repo.save(moved)
+        assertTrue(runCatching { repo.calibrateRotation(scheme, "second") }.exceptionOrNull() is IllegalStateException)
+        assertEquals(moved, repo.get(scheme.id))
+        repo.delete(scheme.id)
+        assertTrue(runCatching { repo.calibrateRotation(scheme, "second") }.exceptionOrNull() is IllegalStateException)
+        assertNull(repo.get(scheme.id))
+    }
+
+    @Test
     fun saveAndReloadRoundTrip() = runTest {
         val repo = SchemeRepository(file(), StandardTestDispatcher(testScheduler))
         repo.save(sample)
