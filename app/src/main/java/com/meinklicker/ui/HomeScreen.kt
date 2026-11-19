@@ -1,6 +1,5 @@
 package com.meinklicker.ui
 
-import android.net.Uri
 import android.util.Size
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,14 +60,12 @@ import java.util.UUID
 fun HomeScreen(
     onOpenScheme: (String) -> Unit,
     onOpenAbout: () -> Unit,
-    incomingBackup: Uri? = null,
-    onConsumeBackup: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val container = context.container
     val schemes by container.repository.schemes.collectAsStateWithLifecycle()
     val selectedId by container.selectedSchemeId.collectAsStateWithLifecycle()
-    val backup = rememberBackupActions(incomingBackup, onConsumeBackup)
+    val backup = rememberBackupActions()
     var renaming by remember { mutableStateOf<Scheme?>(null) }
     var deleting by remember { mutableStateOf<Scheme?>(null) }
 
@@ -91,10 +88,6 @@ fun HomeScreen(
                     Box {
                         TextButton(enabled = !backup.busy, onClick = { backupMenu = true }) { Text("备份") }
                         DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
-                            DropdownMenuItem(text = { Text("从微信导入") }, onClick = {
-                                backupMenu = false
-                                backup.importFromWeChat()
-                            })
                             DropdownMenuItem(text = { Text("从文件导入") }, onClick = {
                                 backupMenu = false
                                 backup.importFile()

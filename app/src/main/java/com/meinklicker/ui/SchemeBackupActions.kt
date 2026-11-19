@@ -20,9 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.core.content.FileProvider
-import com.meinklicker.R
 import com.meinklicker.container
 import com.meinklicker.data.BackupException
 import com.meinklicker.data.Scheme
@@ -42,19 +40,17 @@ private const val WECHAT_PACKAGE = "com.tencent.mm"
 internal data class BackupActions(
     val busy: Boolean,
     val importFile: () -> Unit,
-    val importFromWeChat: () -> Unit,
     val exportFile: (Scheme?) -> Unit,
     val shareToWeChat: (Scheme) -> Unit,
 )
 
 @Composable
-internal fun rememberBackupActions(incomingUri: Uri?, consumeIncoming: () -> Unit): BackupActions {
+internal fun rememberBackupActions(): BackupActions {
     val context = LocalContext.current
     val repository = context.container.repository
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    var showWeChatImport by rememberSaveable { mutableStateOf(false) }
     var importUri by rememberSaveable { mutableStateOf<String?>(null) }
     var preview by remember { mutableStateOf<List<Scheme>?>(null) }
     var exportSchemeId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -98,13 +94,6 @@ internal fun rememberBackupActions(incomingUri: Uri?, consumeIncoming: () -> Uni
         }
     }
 
-    LaunchedEffect(incomingUri) {
-        if (incomingUri != null) {
-            showWeChatImport = false
-            importUri = incomingUri.toString()
-            consumeIncoming()
-        }
-    }
     LaunchedEffect(importUri) {
         preview = null
         val uri = importUri?.let(Uri::parse) ?: return@LaunchedEffect
@@ -153,35 +142,6 @@ internal fun rememberBackupActions(incomingUri: Uri?, consumeIncoming: () -> Uni
             dismissButton = { TextButton(enabled = !busy, onClick = { dismissImport() }) { Text("取消") } },
         )
     }
-    if (showWeChatImport) {
-        AlertDialog(
-            onDismissRequest = { showWeChatImport = false },
-            title = { Text("从微信导入") },
-            text = {
-                val appName = stringResource(R.string.app_name)
-                Text(
-                    "打开会话后，点右上角「⋯」，再点「查找聊天记录 → 文件」。\n\n" +
-                        "打开 .mkbackup 附件，用「其他应用打开」选择「$appName」，然后点「导入」。",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showWeChatImport = false
-                    val unavailable = "无法打开微信。可从「备份 → 从文件导入」选择已保存的备份。"
-                    try {
-                        val weChat = context.packageManager.getLaunchIntentForPackage(WECHAT_PACKAGE)
-                            ?: throw ActivityNotFoundException()
-                        context.startActivity(weChat)
-                    } catch (_: ActivityNotFoundException) {
-                        message = unavailable
-                    } catch (_: SecurityException) {
-                        message = unavailable
-                    }
-                }) { Text("打开微信") }
-            },
-            dismissButton = { TextButton(onClick = { showWeChatImport = false }) { Text("取消") } },
-        )
-    }
     message?.let {
         AlertDialog(
             onDismissRequest = { message = null },
@@ -199,7 +159,6 @@ internal fun rememberBackupActions(incomingUri: Uri?, consumeIncoming: () -> Uni
                 message = "未找到可打开文件的应用。"
             }
         },
-        importFromWeChat = { showWeChatImport = true },
         exportFile = { scheme ->
             try {
                 exportSchemeId = scheme?.id.orEmpty()
@@ -213,7 +172,7 @@ internal fun rememberBackupActions(incomingUri: Uri?, consumeIncoming: () -> Uni
             perform("无法分享方案，可先保存备份，再从微信发送文件。") {
                 val uri = withContext(Dispatchers.IO) { stageBackup(context, scheme) }
                 val share = Intent(Intent.ACTION_SEND).apply {
-                    type = "application/octet-stream"
+                    type = SchemeBackup.MIME_TYPE
                     putExtra(Intent.EXTRA_STREAM, uri)
                     clipData = ClipData.newUri(context.contentResolver, backupFilename(scheme), uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

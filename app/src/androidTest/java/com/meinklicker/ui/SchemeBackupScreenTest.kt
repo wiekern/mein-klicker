@@ -1,5 +1,7 @@
 package com.meinklicker.ui
 
+import android.app.Activity
+import android.app.Instrumentation
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.test.hasText
@@ -7,7 +9,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.core.content.FileProvider
-import androidx.test.filters.SdkSuppress
+import androidx.test.platform.app.InstrumentationRegistry
 import com.meinklicker.container
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.SchemeBackup
@@ -15,12 +17,12 @@ import com.meinklicker.data.Step
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 
 class SchemeBackupScreenTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
@@ -31,74 +33,73 @@ class SchemeBackupScreenTest {
     )
     private val repository get() = compose.activity.container.repository
     private lateinit var file: File
+    private lateinit var uri: Uri
+    private lateinit var initialIds: Set<String>
 
-    @Before fun acceptPrivacy() {
+    @Before fun setUp() {
         if (compose.onAllNodes(hasText("同意并进入")).fetchSemanticsNodes().isNotEmpty()) {
             compose.onNodeWithText("同意并进入").performClick()
         }
-        val cache = File(compose.activity.cacheDir, "scheme-backups/test")
+        val activity = compose.activity
+        val cache = File(activity.cacheDir, "scheme-backups/test")
         cache.mkdirs()
-        file = File(cache, "fixture.mkbackup")
-        file.writeBytes(SchemeBackup.encode(listOf(source)))
+        file = File(cache, "fixture.json")
+        file.writeBytes(byteArrayOf())
+        uri = FileProvider.getUriForFile(activity, "${activity.packageName}.scheme-backups", file)
+        initialIds = repository.schemes.value.map { it.id }.toSet()
+        runBlocking { repository.save(source) }
     }
 
     @After fun cleanup() {
         runBlocking {
-            repository.schemes.value.filter { it.name == source.name }.forEach { repository.delete(it.id) }
+            repository.schemes.value.filter { it.id !in initialIds }
+                .forEach { repository.delete(it.id) }
         }
         file.delete()
     }
 
-    @Test fun openingFilePromptsBeforeImportAndDoesNotChangeSelection() {
-        importFromExternalApp(file, "application/octet-stream")
-    }
-
-    @SdkSuppress(minSdkVersion = 31)
-    @Test fun openingChatAttachmentWithDotsInPathPromptsForRestore() {
-        val attachmentDir = File(file.parentFile, "Android/data/com.tencent.mm/MicroMsg/Download")
-        val attachment = File(attachmentDir, "MeinKlicker.方案(1).mkbackup")
-        file.copyTo(attachment, overwrite = true)
-        try {
-            importFromExternalApp(attachment, "*/*")
-        } finally {
-            attachment.delete()
+    @Test fun exportsJsonAndRestoresItFromTheFilePicker() {
+        val selected = compose.activity.container.selectedSchemeId.value
+        val create = selectFile(Intent.ACTION_CREATE_DOCUMENT, "备份全部方案")
+        assertEquals("application/json", create.type)
+        assertTrue(create.getStringExtra(Intent.EXTRA_TITLE)?.endsWith(".json") == true)
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("已备份", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
-    }
+        compose.onNodeWithText("确定", substring = false).performClick()
+        assertTrue(source in file.inputStream().use(SchemeBackup::read))
 
-    @Test fun resolvesChatAttachmentWithoutDeclaredMimeType() {
-        val activity = compose.activity
-        val uri = Uri.parse("content://com.meinklicker.fixture-provider/Download/MeinKlicker.mkbackup")
-        val intent = Intent(Intent.ACTION_VIEW, uri).setPackage(activity.packageName)
-        assertEquals(MainActivity::class.java.name, intent.resolveActivity(activity.packageManager)?.className)
-    }
-
-    @Test fun doesNotAdvertiseImportForUnrelatedAttachments() {
-        val activity = compose.activity
-        val uri = FileProvider.getUriForFile(
-            activity, "${activity.packageName}.scheme-backups", File(file.parentFile, "other.pdf"),
-        )
-        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/octet-stream").setPackage(activity.packageName)
-        assertNull(intent.resolveActivity(activity.packageManager))
-    }
-
-    private fun importFromExternalApp(file: File, mimeType: String) {
-        val activity = compose.activity
-        val selected = activity.container.selectedSchemeId.value
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.scheme-backups", file)
-        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mimeType)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            .setPackage(activity.packageName)
-        assertEquals(MainActivity::class.java.name, intent.resolveActivity(activity.packageManager)?.className)
-        compose.runOnIdle { activity.startActivity(intent) }
+        selectFile(Intent.ACTION_OPEN_DOCUMENT, "从文件导入")
         compose.waitUntil(5_000) {
             compose.onAllNodes(hasText("分辨率与本机不同", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
-        assertTrue(repository.schemes.value.none { it.name == source.name })
+        assertTrue(repository.schemes.value.none { it.name == "${source.name}（导入）" })
         compose.onNodeWithText("导入", substring = false).performClick()
-        compose.waitUntil(5_000) { repository.schemes.value.any { it.name == source.name } }
-        val imported = repository.schemes.value.single { it.name == source.name }
+        compose.waitUntil(5_000) { repository.schemes.value.any { it.name == "${source.name}（导入）" } }
+        val imported = repository.schemes.value.single { it.name == "${source.name}（导入）" }
         assertTrue(imported.id != source.id)
-        assertEquals(source, imported.copy(id = source.id))
-        assertEquals(selected, activity.container.selectedSchemeId.value)
+        assertEquals(source, imported.copy(id = source.id, name = source.name))
+        assertEquals(selected, compose.activity.container.selectedSchemeId.value)
+    }
+
+    private fun selectFile(action: String, menuItem: String): Intent {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val launched = AtomicReference<Intent>()
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                if (intent.action != action) return null
+                launched.set(Intent(intent))
+                return Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(uri))
+            }
+        }
+        instrumentation.addMonitor(monitor)
+        try {
+            compose.onNodeWithText("备份", substring = false).performClick()
+            compose.onNodeWithText(menuItem, substring = false).performClick()
+            compose.waitUntil(5_000) { launched.get() != null }
+            return checkNotNull(launched.get())
+        } finally {
+            instrumentation.removeMonitor(monitor)
+        }
     }
 }

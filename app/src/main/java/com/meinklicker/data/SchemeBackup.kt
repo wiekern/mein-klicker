@@ -14,8 +14,8 @@ private data class BackupFile(val format: String, val version: Int, val schemes:
 internal class BackupException(message: String) : IllegalArgumentException(message)
 
 internal object SchemeBackup {
-    const val EXTENSION = "mkbackup"
-    const val MIME_TYPE = "application/vnd.meinklicker.backup+json"
+    const val EXTENSION = "json"
+    const val MIME_TYPE = "application/json"
     const val MAX_BYTES = 4 * 1024 * 1024
     private const val FORMAT = "meinklicker-scheme-backup"
     private const val VERSION = 1
@@ -40,7 +40,7 @@ internal object SchemeBackup {
             val text = output.toByteArray().decodeToString(throwOnInvalidSequence = true)
             val root = json.parseToJsonElement(text) as? JsonObject
             if ((root?.get("format") as? JsonPrimitive)?.content != FORMAT) {
-                throw BackupException("请选择 MeinKlicker 的 .$EXTENSION 方案备份文件。")
+                throw BackupException("请选择由 MeinKlicker 导出的方案备份文件。")
             }
             val version = root["version"] as? JsonPrimitive
             if (version == null || version.isString || version.intOrNull == null) throw invalidBackup()
