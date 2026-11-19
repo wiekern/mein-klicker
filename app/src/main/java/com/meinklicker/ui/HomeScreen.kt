@@ -1,5 +1,6 @@
 package com.meinklicker.ui
 
+import android.net.Uri
 import android.util.Size
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,11 +58,17 @@ import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onOpenScheme: (String) -> Unit, onOpenAbout: () -> Unit) {
+fun HomeScreen(
+    onOpenScheme: (String) -> Unit,
+    onOpenAbout: () -> Unit,
+    incomingBackup: Uri? = null,
+    onConsumeBackup: () -> Unit = {},
+) {
     val context = LocalContext.current
     val container = context.container
     val schemes by container.repository.schemes.collectAsStateWithLifecycle()
     val selectedId by container.selectedSchemeId.collectAsStateWithLifecycle()
+    val backup = rememberBackupActions(incomingBackup, onConsumeBackup)
     var renaming by remember { mutableStateOf<Scheme?>(null) }
     var deleting by remember { mutableStateOf<Scheme?>(null) }
 
@@ -80,6 +87,20 @@ fun HomeScreen(onOpenScheme: (String) -> Unit, onOpenAbout: () -> Unit) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("方案", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    var backupMenu by remember { mutableStateOf(false) }
+                    Box {
+                        TextButton(enabled = !backup.busy, onClick = { backupMenu = true }) { Text("备份") }
+                        DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
+                            DropdownMenuItem(text = { Text("导入方案") }, onClick = {
+                                backupMenu = false
+                                backup.importFile()
+                            })
+                            DropdownMenuItem(text = { Text("备份全部方案") }, enabled = schemes.isNotEmpty(), onClick = {
+                                backupMenu = false
+                                backup.exportFile(null)
+                            })
+                        }
+                    }
                     TextButton(onClick = { container.newScheme(ScreenInfo.realSize(context)) }) {
                         Text("＋ 新建")
                     }
@@ -102,6 +123,9 @@ fun HomeScreen(onOpenScheme: (String) -> Unit, onOpenAbout: () -> Unit) {
                     onDuplicate = { container.duplicateScheme(scheme) },
                     onRename = { renaming = scheme },
                     onDelete = { deleting = scheme },
+                    backupEnabled = !backup.busy,
+                    onExport = { backup.exportFile(scheme) },
+                    onShare = { backup.shareToWeChat(scheme) },
                 )
             }
         }
@@ -227,6 +251,9 @@ private fun SchemeCard(
     onDuplicate: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    backupEnabled: Boolean,
+    onExport: () -> Unit,
+    onShare: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     Card(
@@ -253,7 +280,15 @@ private fun SchemeCard(
                     }
                     DropdownMenuItem(text = { Text("复制") }, onClick = { menu = false; onDuplicate() })
                     DropdownMenuItem(text = { Text("重命名") }, onClick = { menu = false; onRename() })
-                    DropdownMenuItem(text = { Text("删除") }, onClick = { menu = false; onDelete() })
+                    DropdownMenuItem(text = { Text("分享到微信") }, enabled = backupEnabled, onClick = {
+                        menu = false
+                        onShare()
+                    })
+                    DropdownMenuItem(text = { Text("保存备份") }, enabled = backupEnabled, onClick = {
+                        menu = false
+                        onExport()
+                    })
+                    DropdownMenuItem(text = { Text("删除") },  onClick = { menu = false; onDelete() })
                 }
             }
         }

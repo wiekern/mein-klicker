@@ -2,6 +2,7 @@ package com.meinklicker.data
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +13,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 /**
  * 方案存储：一个 JSON 文件。构造时同步读取（文件很小），写入先写临时文件再原子替换。
@@ -73,11 +75,31 @@ class SchemeRepository(
 
     suspend fun delete(id: String) = update { list -> list.filterNot { it.id == id } }
 
+    /** 合并备份中的副本，保留步骤 ID 和轮转进度，不覆盖已有方案。 */
+    internal suspend fun importCopies(schemes: List<Scheme>) = update { list ->
+        val usedNames = list.mapTo(mutableSetOf()) { it.name }
+        val usedIds = list.mapTo(mutableSetOf()) { it.id }
+        list + schemes.map { scheme ->
+            var name = scheme.name
+            if (!usedNames.add(name)) {
+                name = "${scheme.name}（导入）"
+                var suffix = 2
+                while (!usedNames.add(name)) name = "${scheme.name}（导入 ${suffix++}）"
+            }
+            var id: String
+            do { id = UUID.randomUUID().toString() } while (!usedIds.add(id))
+            scheme.copy(id = id, name = name)
+        }
+    }
+
     private suspend fun update(transform: (List<Scheme>) -> List<Scheme>) = mutex.withLock {
         val newList = transform(_schemes.value)
         if (newList != _schemes.value) {
-            withContext(ioDispatcher) { write(newList) }
-            _schemes.value = newList
+            // 写盘成功后，即使界面已退出也要同步更新内存中的列表。
+            withContext(NonCancellable) {
+                withContext(ioDispatcher) { write(newList) }
+                _schemes.value = newList
+            }
         }
     }
 
