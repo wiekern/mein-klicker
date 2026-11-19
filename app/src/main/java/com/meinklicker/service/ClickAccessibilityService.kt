@@ -15,7 +15,7 @@ import com.meinklicker.TAG
 import com.meinklicker.container
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.PanelCheck
-import com.meinklicker.data.rotationMembers
+import com.meinklicker.data.rotationError
 import com.meinklicker.data.triggerLabel
 import com.meinklicker.engine.GestureDispatcher
 import com.meinklicker.engine.RunState
@@ -26,11 +26,14 @@ import com.meinklicker.overlay.ControlBarOverlay
 import com.meinklicker.overlay.MarkerEditorOverlay
 import com.meinklicker.overlay.MessageOverlay
 import com.meinklicker.overlay.OverlayManager
-import com.meinklicker.overlay.RotationCalibrationOverlay
+import com.meinklicker.overlay.RotationPointOverlay
 import com.meinklicker.overlay.TapEffectOverlay
 import com.meinklicker.overlay.TriggerZoneOverlay
 import com.meinklicker.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +61,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private lateinit var overlays: OverlayManager
     private lateinit var controlBar: ControlBarOverlay
     private var editor: MarkerEditorOverlay? = null
-    private var calibrationOverlay: RotationCalibrationOverlay? = null
+    private lateinit var rotationPoints: RotationPointOverlay
+    private var rotationSelection: Deferred<Boolean>? = null
     private lateinit var triggerZone: TriggerZoneOverlay
     private lateinit var messages: MessageOverlay
     private lateinit var tapEffect: TapEffectOverlay
@@ -91,6 +95,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             appendLatencyLog("${System.currentTimeMillis()} INTERCEPTED by trigger zone")
             replayIntercepted = true
         }
+        rotationPoints = RotationPointOverlay(this, overlays, ::onRotationPointTapped)
         messages = MessageOverlay(this, overlays)
         tapEffect = TapEffectOverlay(this, overlays)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { scope = it }
@@ -104,8 +109,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             combine(runController.state, repository.schemes, container.selectedSchemeId) { state, list, id ->
                 Triple(state, list.find { it.id == id }, list)
             }.collect { (state, scheme, list) ->
-                if (state is RunState.Calibrating && state.schemeId != scheme?.id) runController.disarm()
                 controlBar.render(state, scheme, list)
+                refreshRotationPoints()
             }
         }
         // 点击特效只在运行期间显示（全屏、不可触摸）
@@ -118,18 +123,13 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         scope.launch {
             // 同时观察方案：待命中在主界面改了触发点半径也能立即刷新
             combine(runController.state, repository.schemes) { state, _ -> state }.collect { state ->
-                if (state !is RunState.Calibrating && calibrationOverlay != null) {
-                    calibrationOverlay?.dismiss()
-                    calibrationOverlay = null
-                    refreshControlBarVisibility()
-                }
                 when (state) {
                     is RunState.Armed -> {
                         val triggers = repository.get(state.schemeId)?.triggers.orEmpty()
                         if (triggers.isNotEmpty()) triggerZone.show(triggers) else runController.disarm()
                     }
                     is RunState.Running -> if (state.fromTrigger) triggerZone.suspendTouch() else triggerZone.hide()
-                    is RunState.Calibrating, RunState.Idle -> triggerZone.hide()
+                    RunState.Idle -> triggerZone.hide()
                 }
             }
         }
@@ -141,7 +141,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        (runController.state.value as? RunState.Calibrating)?.let(runController::finishRotationCalibration)
+        if (::rotationPoints.isInitialized) refreshRotationPoints()
     }
 
     /** 运行中的每一次点击（含触发补发）都先检测，不让后台监测与点击并行。 */
@@ -213,7 +213,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         container.detachService(this)
         editor?.dismiss()
         editor = null
-        calibrationOverlay = null
+        rotationPoints.hide()
+        rotationSelection = null
         overlays.removeAll()
         scope.cancel()
     }
@@ -244,7 +245,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
             }
         }
         if (runController.arm(scheme.id)) {
-            toast(if (scheme.rotationGroup != null) "已待命 · 点组进度可校准下次执行"
+            toast(if (scheme.rotationGroup != null) "已待命 · 点 G 选下次执行，点红圈触发"
                 else "已待命：点红圈里的目标开始，再点 👆 退出")
         }
     }
@@ -254,34 +255,35 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         toast("已退出待命")
     }
 
-    override fun onCalibrateRotation() {
-        val armed = runController.state.value as? RunState.Armed ?: return
-        if (!controlBar.isShown || container.selectedSchemeId.value != armed.schemeId) return
-        val scheme = repository.get(armed.schemeId) ?: return
-        val group = scheme.rotationGroup ?: return
-        val session = runController.beginRotationCalibration() ?: return
-        triggerZone.hide()
-        controlBar.hide()
-        calibrationOverlay = RotationCalibrationOverlay(this, overlays, scheme.rotationMembers(), group.nextStepId,
-            onConfirm = { stepId -> saveRotationCalibration(session, scheme, stepId) },
-            onCancel = { runController.finishRotationCalibration(session) },
-        ).also { it.show() }
+    override fun onBarBoundsChanged() = refreshRotationPoints()
+
+    private fun refreshRotationPoints() {
+        val armed = runController.state.value as? RunState.Armed
+        val scheme = armed?.schemeId?.let(repository::get)
+        if (scope != null && controlBar.isShown && scheme?.rotationGroup != null &&
+            scheme.id == container.selectedSchemeId.value && scheme.rotationError() == null) {
+            rotationPoints.show(scheme, controlBar.bounds())
+        } else rotationPoints.hide()
     }
 
-    private fun saveRotationCalibration(session: RunState.Calibrating, scheme: Scheme, stepId: String) {
-        // 确认后使用进程级作用域，服务重连时也能完成写盘。
-        container.scope.launch {
-            if (runController.state.value !== session) return@launch
+    private fun onRotationPointTapped(scheme: Scheme, stepId: String) {
+        val armed = runController.state.value as? RunState.Armed ?: return
+        if (armed.schemeId != scheme.id || !controlBar.isShown || container.selectedSchemeId.value != scheme.id) return
+        val previous = rotationSelection
+        // 用户可以连续选点。红圈点击等待这些写入完成后再读取方案。
+        rotationSelection = container.scope.async(start = CoroutineStart.UNDISPATCHED) {
+            previous?.join()
+            if (runController.state.value !== armed) return@async false
             try {
                 runController.editSettings { repository.calibrateRotation(scheme, stepId) }
+                true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (runController.state.value === session) {
+                if (runController.state.value === armed) {
                     toast(if (e is IllegalStateException) e.message ?: "校准失败" else "校准保存失败，请重试")
                 }
-            } finally {
-                runController.finishRotationCalibration(session)
+                false
             }
         }
     }
@@ -315,8 +317,16 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
      * 偶尔 flag 仍未在输入系统生效，补发会被触发区接住；这时再等一轮后重发。
      */
     private fun onTriggerTapped(index: Int, x: Int, y: Int) {
-        if (runController.state.value is RunState.Calibrating) return
+        val armed = runController.state.value as? RunState.Armed ?: return
+        val pending = rotationSelection
+        if (pending?.isActive == true) {
+            scope?.launch {
+                if (pending.await() && runController.state.value === armed) onTriggerTapped(index, x, y)
+            }
+            return
+        }
         val upAt = SystemClock.uptimeMillis()
+        rotationPoints.hide()
         triggerZone.suspendTouch()
         replayIntercepted = false
         val started = runController.onTriggerTapped(
@@ -338,6 +348,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         val state = runController.state.value
         if (!started && state is RunState.Armed) {
             repository.get(state.schemeId)?.triggers?.takeIf { it.isNotEmpty() }?.let(triggerZone::show)
+            refreshRotationPoints()
         }
     }
 
@@ -377,9 +388,8 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     private fun refreshControlBarVisibility() {
         val visible = container.controlBarEnabled.value && editor == null && !container.mainUiVisible.value
-        val calibration = runController.state.value as? RunState.Calibrating
-        if (!visible && calibration != null) runController.finishRotationCalibration(calibration)
-        if (visible && calibration == null) controlBar.show() else controlBar.hide()
+        if (visible) controlBar.show() else controlBar.hide()
+        refreshRotationPoints()
     }
 
     private fun ensureCurrentDisplay() {

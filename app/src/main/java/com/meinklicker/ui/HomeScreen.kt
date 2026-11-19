@@ -181,7 +181,6 @@ private fun StatusCard() {
                         when (val s = runState) {
                             RunState.Idle -> "空闲"
                             is RunState.Armed -> "待命中"
-                            is RunState.Calibrating -> "校准中"
                             is RunState.Running -> if (s.round > 0) "运行中 第${s.round}轮" else "运行中"
                         } + " · 在本页自动隐藏",
                         style = MaterialTheme.typography.bodySmall,
@@ -299,12 +298,7 @@ private fun AppContainer.duplicateScheme(scheme: Scheme) {
 
 private fun AppContainer.deleteScheme(id: String) {
     val state = runController.state.value
-    val activeId = when (state) {
-        RunState.Idle -> null
-        is RunState.Armed -> state.schemeId
-        is RunState.Calibrating -> state.schemeId
-        is RunState.Running -> state.schemeId
-    }
+    val activeId = (state as? RunState.Armed)?.schemeId ?: (state as? RunState.Running)?.schemeId
     if (activeId == id) runController.reset()
     if (selectedSchemeId.value == id) selectScheme(null)
     scope.launch { repository.delete(id) }

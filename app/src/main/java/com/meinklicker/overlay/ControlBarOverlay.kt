@@ -28,7 +28,7 @@ class ControlBarOverlay(
         fun onRun()
         fun onArm()
         fun onDisarm()
-        fun onCalibrateRotation()
+        fun onBarBoundsChanged()
         fun onStop()
         fun onOpenMain()
         fun onEdit()
@@ -54,15 +54,13 @@ class ControlBarOverlay(
         isSingleLine = true
         maxWidth = buttonSize + overlays.dp(8)
     }
-    /** 当前方案的循环设置；待命时组进度也是校准入口。 */
+    /** 当前方案的循环设置或组进度。 */
     private val loopText = TextView(context).apply {
         setTextColor(0xFF80CBC4.toInt())
         textSize = 10f
         gravity = Gravity.CENTER
         isSingleLine = true
         maxWidth = buttonSize + overlays.dp(8)
-        minWidth = buttonSize
-        setOnClickListener { actions.onCalibrateRotation() }
     }
     private val runButton = BarButton(context, "▶", buttonSize) { actions.onRun() }
     /** 待命开关：👆 表示"等你先点一下"；待命中红色圆底（与触发区同色），再点退出。 */
@@ -98,6 +96,9 @@ class ControlBarOverlay(
     private val picker = SchemePicker()
 
     init {
+        root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) actions.onBarBoundsChanged()
+        }
         var startX = 0
         var startY = 0
         handle.setOnTouchListener(DragTouchListener(
@@ -111,6 +112,7 @@ class ControlBarOverlay(
                 params.x = (startX + dx).coerceIn(0, (screen.width - root.width).coerceAtLeast(0))
                 params.y = (startY + dy).coerceIn(0, (screen.height - root.height).coerceAtLeast(0))
                 overlays.update(root, params)
+                actions.onBarBoundsChanged()
             },
         ))
     }
@@ -132,7 +134,6 @@ class ControlBarOverlay(
         statusText.text = when (state) {
             RunState.Idle -> "空闲"
             is RunState.Armed -> "待命"
-            is RunState.Calibrating -> "校准"
             is RunState.Running -> when {
                 state.round == 0 -> "运行"
                 scheme?.rotationGroup != null -> "第${state.step}步"
@@ -142,13 +143,6 @@ class ControlBarOverlay(
         }
         loopText.text = scheme?.let { loopBadge(it) } ?: ""
         loopText.visibility = if (collapsed || scheme == null) View.GONE else View.VISIBLE
-        val hasValidGroup = scheme?.rotationGroup != null && scheme.rotationError() == null
-        val canCalibrate = state is RunState.Armed && scheme?.id == state.schemeId && hasValidGroup
-        loopText.isClickable = canCalibrate
-        loopText.isFocusable = canCalibrate
-        loopText.contentDescription = if (canCalibrate) "${loopText.text}，校准下次执行" else null
-        loopText.background = if (canCalibrate) roundedBg(0x334DB6AC, overlays.dp(5).toFloat()) else null
-        loopText.minHeight = if (hasValidGroup) overlays.dp(32) else 0
         runButton.isEnabled = state == RunState.Idle && !scheme?.steps.isNullOrEmpty()
         val armed = state is RunState.Armed || (state is RunState.Running && state.fromTrigger)
         armButton.background = if (armed) circleBg(TRIGGER_COLOR) else null
@@ -162,9 +156,7 @@ class ControlBarOverlay(
     /** 悬浮栏在屏幕上的矩形（绝对像素），用于运行前的重叠检查。 */
     fun bounds(): Rect? {
         if (!isShown) return null
-        val loc = IntArray(2)
-        root.getLocationOnScreen(loc)
-        return Rect(loc[0], loc[1], loc[0] + root.width, loc[1] + root.height)
+        return Rect(params.x, params.y, params.x + root.width, params.y + root.height)
     }
 
     private fun loopBadge(scheme: Scheme): String {

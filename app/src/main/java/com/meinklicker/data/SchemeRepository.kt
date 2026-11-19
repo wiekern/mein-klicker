@@ -58,11 +58,14 @@ class SchemeRepository(
         val index = list.indexOfFirst { it.id == snapshot.id }
         val current = list.getOrNull(index)
         val group = current?.rotationGroup
-        check(current != null && group != null && group == snapshot.rotationGroup &&
-            current.rotationError() == null && current.rotationMembers() == snapshot.rotationMembers()) {
+        val expected = snapshot.rotationGroup
+        check(current != null && group != null && expected != null && group.stepIds == expected.stepIds &&
+            group.commitStepId == expected.commitStepId && current.rotationError() == null &&
+            current.rotationMembers() == snapshot.rotationMembers()) {
             "循环组或点位已改变，请重新选择"
         }
         check(stepId in group.stepIds) { "请选择一个组内点位" }
+        if (stepId == group.nextStepId) return@update list
         list.toMutableList().apply {
             this[index] = current.copy(rotationGroup = group.copy(nextStepId = stepId))
         }
@@ -72,8 +75,10 @@ class SchemeRepository(
 
     private suspend fun update(transform: (List<Scheme>) -> List<Scheme>) = mutex.withLock {
         val newList = transform(_schemes.value)
-        withContext(ioDispatcher) { write(newList) }
-        _schemes.value = newList
+        if (newList != _schemes.value) {
+            withContext(ioDispatcher) { write(newList) }
+            _schemes.value = newList
+        }
     }
 
     private fun load(): List<Scheme> {

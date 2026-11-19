@@ -1,12 +1,13 @@
 package com.meinklicker.service
 
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.graphics.Rect
 import android.app.UiAutomation
+import android.graphics.Rect
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -56,17 +57,14 @@ class RotationGroupRunTest {
         }
     }
 
-    private fun textBounds(text: String): Rect? = automation.windows.firstNotNullOfOrNull { window ->
-        val node = window.root?.findAccessibilityNodeInfosByText(text)
-            ?.firstOrNull { it.text?.toString() == text } ?: return@firstNotNullOfOrNull null
-        Rect().also(node::getBoundsInScreen).takeUnless { it.isEmpty }
+    private fun findNode(text: String): AccessibilityNodeInfo? = automation.windows.firstNotNullOfOrNull { window ->
+        window.root?.findAccessibilityNodeInfosByText(text)
+            ?.firstOrNull { it.text?.toString() == text || it.contentDescription?.toString() == text }
     }
 
-    private fun tapText(text: String) {
-        await("找不到 $text") { textBounds(text) != null }
-        val bounds = checkNotNull(textBounds(text))
-        tap(bounds.centerX(), bounds.centerY())
-    }
+    private fun markerBounds(label: String): Rect = Rect().also(checkNotNull(findNode("点位 $label"))::getBoundsInScreen)
+
+    private fun markersShown() = (1..3).all { findNode("点位 G$it") != null }
 
     @Test fun realTriggersAndDirectRunRotateOneMemberAndPersistAfterEachConfirmation() {
         val previous = shell("settings get secure enabled_accessibility_services")
@@ -161,33 +159,50 @@ class RotationGroupRunTest {
                     context.container.setMainUiVisible(false)
                     service.onArm()
                 }
-                tapText("组2/3")
-                await("未显示原先的 G2") { textBounds("校准下次执行 · G2") != null }
+                await("待命时应直接显示所有 G 标记并选中 G2") {
+                    markersShown() && findNode("点位 G2")?.isSelected == true
+                }
                 val trigger = points.getValue("join1")
                 val lastMember = points.getValue("c")
-                tap(trigger.first, trigger.second)
+                val after = points.getValue("after")
+                val marker = markerBounds("G3")
+                assertEquals(lastMember, marker.centerX() to marker.centerY())
+                tap(after.first, after.second)
+                await("G 标记不应拦截其余画面") { events.size == 19 && events.last() == "after" }
                 tap(lastMember.first, lastMember.second)
-                await("未从画面选中 G3") { textBounds("校准下次执行 · G3") != null }
-                assertEquals(18, events.size)
-                assertEquals("b", nextFromDisk())
-                tapText("取消")
-                await("取消后未回到待命") { context.container.runController.state.value == RunState.Armed(id) }
-                assertEquals("b", nextFromDisk())
-
-                tapText("组2/3")
-                await("未重新打开校准面板") { textBounds("校准下次执行 · G2") != null }
-                tap(lastMember.first, lastMember.second)
-                tapText("确认")
-                await("校准后未继续待命") { context.container.runController.state.value == RunState.Armed(id) }
-                await("悬浮栏未显示新进度") { textBounds("组3/3") != null }
+                await("单击 G3 后应立即更新高亮和进度") {
+                    findNode("点位 G3")?.isSelected == true && findNode("组3/3") != null
+                }
+                assertEquals(RunState.Armed(id), context.container.runController.state.value)
                 assertEquals("c", nextFromDisk())
-                assertEquals(18, events.size)
+                assertEquals(19, events.size)
                 tap(trigger.first, trigger.second)
                 await("校准后的触发未完成：$events") {
-                    events.size == 23 && context.container.runController.state.value == RunState.Armed(id)
+                    events.size == 24 && context.container.runController.state.value == RunState.Armed(id)
                 }
                 assertEquals(listOf("join1", "before", "c", "send", "after"), events.toList().takeLast(5))
                 assertEquals("a", nextFromDisk())
+                await("轮转后应高亮 G1") { findNode("点位 G1")?.isSelected == true }
+                instrumentation.runOnMainSync { service.onDisarm() }
+                await("退出待命后应隐藏 G 标记") { (1..3).none { findNode("点位 G$it") != null } }
+
+                val moved = context.container.repository.get(id)!!.let { saved ->
+                    saved.copy(steps = saved.steps.map { step ->
+                        if (step.id in listOf("a", "b", "c")) step.copy(x = trigger.first, y = trigger.second) else step
+                    })
+                }
+                runBlocking { context.container.repository.save(moved) }
+                instrumentation.runOnMainSync { service.onArm() }
+                await("点位重叠时仍应显示全部 G 标记") { markersShown() }
+                val markerBounds = (1..3).map { markerBounds("G$it") }
+                assertTrue(markerBounds.none { it.contains(trigger.first, trigger.second) })
+                for (i in markerBounds.indices) for (j in 0 until i) {
+                    assertFalse(Rect.intersects(markerBounds[i], markerBounds[j]))
+                }
+                val movedG3 = markerBounds.last()
+                tap(movedG3.centerX(), movedG3.centerY())
+                await("应能选择避让后的 G3") { findNode("点位 G3")?.isSelected == true }
+                assertEquals("c", nextFromDisk())
             }
         } finally {
             runBlocking {

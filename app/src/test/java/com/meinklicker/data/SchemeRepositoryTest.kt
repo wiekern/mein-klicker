@@ -91,6 +91,9 @@ class SchemeRepositoryTest {
         repo.calibrateRotation(scheme, "second")
         assertEquals(renamed.copy(rotationGroup = renamed.rotationGroup!!.copy(nextStepId = "second")),
             SchemeRepository(file()).get(scheme.id))
+        // 连续点两个 G 标记时，第二次点选可以使用同一份显示快照。
+        repo.calibrateRotation(scheme, "first")
+        assertEquals(renamed, SchemeRepository(file()).get(scheme.id))
     }
 
     @Test

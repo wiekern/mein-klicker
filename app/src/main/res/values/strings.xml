@@ -9,6 +9,4 @@
     <string name="privacy_welcome">欢迎使用 %1$s</string>
     <string name="background_running_hint">ColorOS / OriginOS 会在清理后台时关闭无障碍服务：请允许自启动和后台运行，并在最近任务中下拉锁定 %1$s。</string>
     <string name="a11y_description">用于按方案自动点击屏幕位置并显示悬浮控制栏。</string>
-    <string name="rotation_calibration_title">校准下次执行 · %1$s</string>
-    <string name="rotation_calibration_saving">正在保存 %1$s…</string>
 </resources>
