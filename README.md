@@ -131,6 +131,8 @@ export JAVA_HOME="/path/to/Android Studio/jbr"
 
 发布签名（可选）：在 `local.properties` 加一行 `release.signing=/path/to/release.properties`，该文件写上 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`，然后 `./gradlew assembleRelease`。没配置时 release 包不签名。密钥和密码不要放进仓库。
 
+发布和 vivo 应用商店上架使用同一个 APK `app/build/outputs/apk/release/app-release.apk`。包内默认应用名称为「点序连点器」。桌面名称随系统语言显示，中文为「点序连点器」，其他语言为 `MeinKlicker`。
+
 ### 用 adb 安装
 
 1. 手机：设置 → 关于手机 → 连续点"版本号"打开开发者选项；

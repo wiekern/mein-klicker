@@ -18,8 +18,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import com.meinklicker.R
 
 internal const val PRIVACY_PREFERENCES = "privacy"
 internal const val PRIVACY_ACCEPTED_VERSION_KEY = "accepted_version"
@@ -27,6 +29,7 @@ internal const val PRIVACY_POLICY_VERSION = "2026-11-11"
 
 @Composable
 fun PrivacyConsentScreen(onAgree: () -> Unit, onReject: () -> Unit) {
+    val appName = stringResource(R.string.app_name)
     var readingPolicy by rememberSaveable { mutableStateOf(false) }
     if (readingPolicy) {
         BackHandler { readingPolicy = false }
@@ -37,7 +40,7 @@ fun PrivacyConsentScreen(onAgree: () -> Unit, onReject: () -> Unit) {
             AlertDialog(
                 onDismissRequest = onReject,
                 properties = DialogProperties(dismissOnClickOutside = false),
-                title = { Text("欢迎使用 MeinKlicker") },
+                title = { Text(stringResource(R.string.privacy_welcome, appName)) },
                 text = {
                     Column(
                         Modifier.verticalScroll(rememberScrollState()).padding(vertical = 4.dp),
