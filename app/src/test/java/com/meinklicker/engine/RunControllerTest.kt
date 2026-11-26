@@ -36,7 +36,7 @@ class RunControllerTest {
 
     private fun TestScope.setup(): Pair<RunController, FakeGestureDispatcher> {
         val fake = FakeGestureDispatcher(testScheduler)
-        return RunController(ClickEngine(fake), backgroundScope) { schemes[it] } to fake
+        return RunController(ClickEngine(fake), backgroundScope, uptimeMillis = { testScheduler.currentTime }) { schemes[it] } to fake
     }
 
     /** backgroundScope 里的任务不会被 advanceUntilIdle 推进，这里显式推进足够长的虚拟时间。 */
@@ -65,6 +65,56 @@ class RunControllerTest {
         advanceTimeBy(150)
         runCurrent()
         assertEquals(RunState.Running("direct", round = 1, step = 2, fromTrigger = false), rc.state.value)
+    }
+
+    @Test
+    fun roundWaitStartsAfterLastTapAndClearsAtNextRound() = runTest {
+        val intervalMs = 300_000L
+        schemes["direct"] = schemes.getValue("direct").copy(loop = LoopConfig(2, intervalMs))
+        val (rc, fake) = setup()
+        assertTrue(rc.run("direct"))
+        runCurrent()
+        assertEquals(null, (rc.state.value as RunState.Running).roundWait)
+
+        advanceTimeBy(200)
+        runCurrent()
+        val waiting = rc.state.value as RunState.Running
+        val wait = checkNotNull(waiting.roundWait)
+        assertEquals(1, waiting.round)
+        assertEquals(2, fake.taps.size)
+        assertEquals(200L, wait.startedAtUptimeMs)
+        assertEquals(intervalMs, wait.remainingMs(testScheduler.currentTime))
+
+        advanceTimeBy(intervalMs - 1)
+        runCurrent()
+        assertEquals(waiting, rc.state.value)
+        assertEquals(1L, wait.remainingMs(testScheduler.currentTime))
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(RunState.Running("direct", round = 2, step = 1, fromTrigger = false), rc.state.value)
+        assertEquals(2, fake.taps.size)
+        advanceTimeBy(200)
+        runCurrent()
+        assertEquals(4, fake.taps.size)
+        assertEquals(RunState.Idle, rc.state.value)
+    }
+
+    @Test
+    fun stopDuringRoundWaitClearsWaitAndSkipsNextRound() = runTest {
+        schemes["trig"] = schemes.getValue("trig").copy(loop = LoopConfig(2, 5_000))
+        val (rc, fake) = setup()
+        assertTrue(rc.arm("trig"))
+        assertTrue(rc.onTriggerTapped(0, trigger.x, trigger.y))
+        advanceTimeBy(300)
+        runCurrent()
+        assertTrue((rc.state.value as RunState.Running).roundWait != null)
+        assertEquals(3, fake.taps.size)
+
+        rc.stop()
+        settle()
+        assertEquals(RunState.Armed("trig"), rc.state.value)
+        assertEquals(3, fake.taps.size)
     }
 
     @Test

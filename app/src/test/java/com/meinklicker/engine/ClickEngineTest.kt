@@ -52,6 +52,27 @@ class ClickEngineTest {
     }
 
     @Test
+    fun reportsExactlyOneWaitPerGapAcross1000Rounds() = runTest {
+        val fake = FakeGestureDispatcher(testScheduler)
+        val rounds = 1_000
+        val intervalMs = 300_000L
+        val stepWaitMs = 100L
+        val s = scheme(LoopConfig(rounds, intervalMs), Step(1, 1, stepWaitMs))
+        var waits = 0
+        ClickEngine(fake).runLoop(s, onRoundWait = { nextRound, duration ->
+            waits++
+            assertEquals(waits + 1, nextRound)
+            assertEquals(intervalMs, duration)
+            assertEquals(fake.taps.last().atMs, testScheduler.currentTime)
+        })
+
+        assertEquals(rounds - 1, waits)
+        assertEquals(rounds, fake.taps.size)
+        assertEquals(stepWaitMs * rounds + intervalMs * (rounds - 1), fake.taps.last().atMs)
+        assertEquals(fake.taps.last().atMs, testScheduler.currentTime)
+    }
+
+    @Test
     fun infiniteLoopStopsWithinOneStep() = runTest {
         val fake = FakeGestureDispatcher(testScheduler)
         val s = scheme(LoopConfig(count = 0), Step(1, 1, 100), Step(2, 2, 100))

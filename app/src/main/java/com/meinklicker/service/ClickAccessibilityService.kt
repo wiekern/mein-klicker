@@ -147,34 +147,35 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     /** 运行中的每一次点击（含触发补发）都先检测，不让后台监测与点击并行。 */
     suspend fun tapForRun(x: Int, y: Int, durationMs: Long): Boolean {
         val state = runController.state.value as? RunState.Running ?: return false
-        val check = state.panelCheck?.takeIf { it.enabled }
-        if (check != null) {
-            try {
-                PanelVisibilityGate {
-                    val screen = overlays.screen
-                    check(screen.width == check.screenWidth && screen.height == check.screenHeight) {
-                        "屏幕尺寸已改变（${screen.width}×${screen.height}，参考 ${check.screenWidth}×${check.screenHeight}），请重新框选检测区域"
-                    }
-                    controlBar.bounds()?.let { bar ->
-                        check(!Rect.intersects(bar, Rect(check.left, check.top, check.right, check.bottom))) {
-                            "悬浮栏挡住检测区域，请拖开后重新开始"
-                        }
-                    }
-                    capturePanelFrame().use { frame ->
-                        check(frame.packageName == check.packageName) { "当前应用已切换" }
-                        frame.matches(check)
-                    }
-                }.awaitVisible()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                val message = if (e is RunAborted) e.message!! else "检测失败，已停止：${e.message ?: "无法读取画面"}"
-                toast(message)
-                throw RunAborted(message)
-            }
+        state.panelCheck?.takeIf { it.enabled }?.let { check ->
+            if (!detectPanel(check)) throw RunAborted("检测区域已消失，已停止并退出待命")
         }
         currentCoroutineContext().ensureActive()
         return gestures.tap(x, y, durationMs)
+    }
+
+    /** 分支和点击前守卫共用截图校验，只有确认画面不匹配才返回 false。 */
+    suspend fun detectPanel(reference: PanelCheck): Boolean = try {
+        check(reference.colors.size == PanelMatcher.SAMPLE_COUNT) { "参考采样无效，请重新框选检测区域" }
+        PanelVisibilityGate {
+            val screen = overlays.screen
+            check(screen.width == reference.screenWidth && screen.height == reference.screenHeight) {
+                "屏幕尺寸已改变（${screen.width}×${screen.height}，参考 ${reference.screenWidth}×${reference.screenHeight}），请重新框选检测区域"
+            }
+            controlBar.bounds()?.let { bar ->
+                check(!Rect.intersects(bar, Rect(reference.left, reference.top, reference.right, reference.bottom))) {
+                    "悬浮栏挡住检测区域，请拖开后重新开始"
+                }
+            }
+            capturePanelFrame().use { frame ->
+                check(frame.packageName == reference.packageName) { "当前应用已切换" }
+                frame.matches(reference)
+            }
+        }.isVisible()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        throw RunAborted("检测失败，已停止：${e.message ?: "无法读取画面"}")
     }
 
     private suspend fun capturePanelFrame(): PanelScreenshot.Frame {

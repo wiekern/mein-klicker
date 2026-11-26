@@ -2,6 +2,7 @@ package com.meinklicker.overlay
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.UiAutomation
+import android.os.Build
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.InputDevice
@@ -12,6 +13,7 @@ import android.widget.FrameLayout
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.meinklicker.container
+import com.meinklicker.data.PanelCheck
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.Step
 import com.meinklicker.data.TriggerConfig
@@ -23,8 +25,10 @@ import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class MarkerEditorOverlayTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -59,6 +63,92 @@ class MarkerEditorOverlayTest {
             return (0 until node.childCount).firstNotNullOfOrNull { node.getChild(it)?.let(::find) }
         }
         return automation.windows.firstNotNullOfOrNull { it.root?.let(::find) }
+    }
+
+    @Test fun insertsClicksBeforeAndAfterSelectionAndCapturesTwoIndependentDetections() {
+        assumeTrue(Build.VERSION.SDK_INT >= 30)
+        val previous = shell("settings get secure enabled_accessibility_services")
+        val previousEnabled = shell("settings get secure accessibility_enabled")
+        val context = instrumentation.targetContext
+        val result = AtomicReference<Scheme>()
+        val captures = AtomicInteger()
+        var editor: MarkerEditorOverlay? = null
+        try {
+            val component = "${context.packageName}/${ClickAccessibilityService::class.java.name}"
+            val services = (previous.takeUnless { it == "null" || it.isEmpty() }?.split(":").orEmpty() + component).distinct()
+            shell("settings put secure enabled_accessibility_services ${services.joinToString(":")}")
+            shell("settings put secure accessibility_enabled 1")
+            await { context.container.serviceFlow.value != null }
+            automation.serviceInfo = automation.serviceInfo.apply {
+                flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val service = context.container.serviceFlow.value!!
+                val manager = OverlayManager(service)
+                val screen = manager.screen
+                val first = Step(screen.width / 4, screen.height / 3, id = "first")
+                val second = Step(screen.width * 3 / 4, screen.height / 3, id = "second")
+                val scheme = Scheme("insert-test", "insert", screen.width, screen.height,
+                    steps = listOf(first, second), updatedAt = 0)
+                scenario.onActivity {
+                    editor = MarkerEditorOverlay(service, manager, scheme, "insert", {},
+                        onPreviewTap = { _, _, _ -> true }, onCapturePanel = { region ->
+                            val value = captures.incrementAndGet()
+                            PanelCheck(region.left, region.top, region.right, region.bottom,
+                                screen.width, screen.height, context.packageName, List(768) { it + value })
+                        }, onFinish = { result.set(it) }).also { it.show() }
+                }
+                fun click(text: String) {
+                    await("找不到 $text") { button(text) != null }
+                    var node = button(text)!!
+                    while (!node.isClickable && node.parent != null) node = node.parent
+                    assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    instrumentation.waitForIdleSync()
+                }
+                fun configureRegion(top: Int) {
+                    await { button("使用选区") != null }
+                    shell("input swipe 100 $top 320 ${top + 100} 250")
+                    click("使用选区")
+                    await { button("加步骤") != null }
+                }
+                await { button("加步骤") != null }
+                runBlocking { withContext(Dispatchers.Main) { manager.awaitTouchReleased() } }
+                tap(first.x, first.y)
+                await { button("第 1 步") != null }
+                click("加步骤")
+                click("在第 1 步前添加步骤")
+                tap(first.x, first.y)
+                await { button("第 2 步") != null }
+                click("加步骤")
+                click("在第 2 步后添加步骤")
+                tap(first.x, first.y)
+                await { button("第 2 步") != null }
+                click("面板检测")
+                click("在第 2 步前添加检测")
+                configureRegion(screen.height / 6)
+                tap(second.x, second.y)
+                await { button("第 4 步") != null }
+                click("面板检测")
+                click("在第 4 步后添加检测")
+                configureRegion(screen.height / 4)
+                click("保存")
+                await { result.get() != null }
+                val saved = result.get()!!
+                assertEquals(4, saved.steps.size)
+                assertEquals(first, saved.steps[1])
+                assertEquals(second, saved.steps[3])
+                assertEquals(first.id, saved.panelDetections[0].branch.beforeStepId)
+                assertEquals(second.id, saved.panelDetections[1].branch.afterStepId)
+                assertEquals(listOf(1, 2), saved.panelDetections.map { it.reference!!.colors.first() })
+                assertEquals(2, saved.panelDetections.map { it.reference!!.top }.distinct().size)
+            }
+        } finally {
+            instrumentation.runOnMainSync { editor?.dismiss() }
+            if (previous == "null") shell("settings delete secure enabled_accessibility_services")
+            else shell("settings put secure enabled_accessibility_services '$previous'")
+            if (previousEnabled == "null") shell("settings delete secure accessibility_enabled")
+            else shell("settings put secure accessibility_enabled $previousEnabled")
+        }
     }
 
     @Test fun resizesTriggersIndependentlyWithoutMovingCentersAndCancelDiscardsChanges() {

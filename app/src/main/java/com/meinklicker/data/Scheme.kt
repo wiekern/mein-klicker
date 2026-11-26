@@ -20,10 +20,13 @@ data class Scheme(
     val loop: LoopConfig = LoopConfig(),
     /** 每次点击的按压时长，步骤和触发补发共用。旧文件没有该字段时取默认值。 */
     val pressMs: Long = DEFAULT_PRESS_MS,
-    /** 可选的面板存在检测；旧方案默认不检测。 */
+    /** 旧版点击前检测，也用来读取旧版分支的选区。 */
     val panelCheck: PanelCheck? = null,
     val rotationGroup: RotationGroup? = null,
     val updatedAt: Long,
+    /** 旧方案的单个分支。编辑保存后迁移至 [panelDetections]。 */
+    val panelBranch: PanelBranch? = null,
+    val panelDetections: List<PanelDetection> = emptyList(),
 )
 
 @Serializable
@@ -38,6 +41,73 @@ data class PanelCheck(
     val colors: List<Int>,
     val enabled: Boolean = true,
 )
+
+@Serializable
+enum class PanelAction { CLICK, STOP, CONTINUE, END_ROUND }
+
+/** 指定所依附的点击步骤。两个位置均为空时放在末尾。 */
+@Serializable
+data class PanelBranch(
+    val beforeStepId: String? = null,
+    val presentStepId: String = "",
+    val absentStepId: String = "",
+    val delayBeforeMs: Long = DEFAULT_DELAY_MS,
+    val afterStepId: String? = null,
+    // 旧备份只保存了点位 ID，缺省操作仍是点击。
+    val presentAction: PanelAction = PanelAction.CLICK,
+    val absentAction: PanelAction = PanelAction.CLICK,
+) {
+    fun clickTargetIds(): List<String> = buildList {
+        if (presentAction == PanelAction.CLICK) add(presentStepId)
+        if (absentAction == PanelAction.CLICK) add(absentStepId)
+    }
+}
+
+@Serializable
+data class PanelDetection(
+    val id: String,
+    val reference: PanelCheck?,
+    val branch: PanelBranch = PanelBranch(),
+)
+
+fun Iterable<PanelDetection>.branchClickStepIds(): Set<String> = flatMap { it.branch.clickTargetIds() }.toSet()
+
+fun Scheme.detectionSteps(): List<PanelDetection> {
+    if (panelDetections.isNotEmpty()) return panelDetections
+    val legacy = panelBranch ?: return emptyList()
+    return listOf(PanelDetection("legacy-panel", panelCheck, legacy))
+}
+
+fun Scheme.panelBranchError(): String? {
+    val detections = detectionSteps()
+    val ids = detections.map { it.id }
+    if (ids.any { it.isBlank() } || ids.distinct().size != ids.size) return "面板检测步骤标识无效"
+    detections.forEachIndexed { index, detection ->
+        panelDetectionError(detection)?.let { return "检测 ${index + 1}：$it" }
+    }
+    return null
+}
+
+fun Scheme.panelDetectionError(detection: PanelDetection): String? {
+    val branch = detection.branch
+    val group = rotationGroup
+    fun hasStep(id: String) = id.isNotBlank() && steps.count { it.id == id } == 1
+    val clickTargets = branch.clickTargetIds()
+    return when {
+        detection.reference == null -> "请先在悬浮编辑器框选面板检测区域"
+        branch.delayBeforeMs < 0 -> "检测前等待必须大于或等于 0 ms"
+        branch.beforeStepId != null && branch.afterStepId != null -> "请重新选择面板检测的位置"
+        listOfNotNull(branch.beforeStepId, branch.afterStepId).any { !hasStep(it) } -> "请重新选择面板检测的位置"
+        clickTargets.any { !hasStep(it) } -> "请选择检测到和未检测到时的操作"
+        branch.presentAction == branch.absentAction &&
+            (branch.presentAction != PanelAction.CLICK || branch.presentStepId == branch.absentStepId) ->
+            "两个分支请选择不同的操作"
+        group != null && clickTargets.any {
+            it in group.stepIds || it == group.commitStepId
+        } -> "分支不能使用循环组成员或进度确认步骤"
+        else -> null
+    }
+}
 
 @Serializable
 data class Step(

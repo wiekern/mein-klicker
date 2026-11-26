@@ -26,6 +26,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,12 +44,17 @@ import com.meinklicker.data.MIN_DELAY_MS
 import com.meinklicker.data.MIN_PRESS_MS
 import com.meinklicker.data.MIN_TRIGGER_RADIUS_DP
 import com.meinklicker.data.MAX_TRIGGER_RADIUS_DP
+import com.meinklicker.data.PanelDetection
+import com.meinklicker.data.branchClickStepIds
+import com.meinklicker.data.detectionSteps
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.panelBranchError
 import com.meinklicker.data.triggerLabel
 import com.meinklicker.data.rotationError
 import com.meinklicker.engine.RunState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 /** 方案参数设置。位置不在这里设置，在目标应用上用悬浮栏的 ✎ 拖动设置。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,7 +68,13 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var interval by remember(scheme.id) { mutableStateOf("${scheme.loop.intervalMs}") }
     var press by remember(scheme.id) { mutableStateOf("${scheme.pressMs}") }
     var showPressTips by remember { mutableStateOf(false) }
-    var panelCheckEnabled by remember(scheme.id) { mutableStateOf(scheme.panelCheck?.enabled == true) }
+    var keepLegacyGuard by remember(scheme.id, scheme.panelCheck, scheme.panelBranch, scheme.panelDetections) {
+        mutableStateOf(scheme.panelCheck?.enabled == true && scheme.panelBranch == null && scheme.panelDetections.isEmpty())
+    }
+    var detections by remember(scheme.id, scheme.panelCheck, scheme.panelBranch, scheme.panelDetections) {
+        mutableStateOf(scheme.detectionSteps())
+    }
+    val detectionDelays = remember(scheme.id, scheme.panelBranch, scheme.panelDetections) { mutableStateMapOf<String, String>() }
     var saving by remember(scheme.id) { mutableStateOf(false) }
     var saveError by remember(scheme.id) { mutableStateOf<String?>(null) }
     var rotationGroup by remember(scheme.id, scheme.rotationGroup, scheme.steps) { mutableStateOf(scheme.rotationGroup) }
@@ -83,13 +95,19 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
         }?.div(2)
     }
     val stepDelayValues = stepDelays.map { it.toLongOrNull()?.takeIf { v -> v >= MIN_DELAY_MS } }
+    val detectionDrafts = detections.map { detection ->
+        val delay = detectionDelays[detection.id]
+        if (delay == null) detection else detection.copy(branch = detection.branch.copy(delayBeforeMs = delay.toLongOrNull() ?: -1))
+    }
+    val draft = scheme.copy(rotationGroup = rotationGroup, panelBranch = null, panelDetections = detectionDrafts)
+    val branchTargets = detections.branchClickStepIds()
     val valid = name.isNotBlank() &&
         (rotationGroup != null || ((infinite || countValue != null) && intervalValue != null)) &&
         pressValue != null &&
         triggerDelayValues.all { it != null } &&
         triggerRadiusValues.all { it != null } &&
         stepDelayValues.all { it != null } &&
-        scheme.copy(rotationGroup = rotationGroup).rotationError() == null
+        draft.rotationError() == null && draft.panelBranchError() == null
 
     fun save() {
         if (!valid || saving) return
@@ -103,7 +121,9 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
                 LoopConfig(count = if (infinite) 0 else countValue!!, intervalMs = intervalValue!!),
             rotationGroup = rotationGroup,
             pressMs = pressValue!!,
-            panelCheck = scheme.panelCheck?.copy(enabled = panelCheckEnabled),
+            panelCheck = scheme.panelCheck?.copy(enabled = keepLegacyGuard && detections.isEmpty()),
+            panelBranch = null,
+            panelDetections = detectionDrafts,
             triggers = scheme.triggers.mapIndexed { i, t ->
                 t.copy(delayAfterMs = triggerDelayValues[i]!!, radiusDp = triggerRadiusValues[i]!!)
             },
@@ -185,24 +205,30 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
                 }
                 item { NumberField("轮间隔 (ms)", interval, intervalValue == null, "≥ 0") { interval = it } }
             }
-            if (!editable && !saving) item { Text("正在运行，请先停止后再修改循环组或保存。") }
+            if (!editable && !saving) item { Text("正在运行，请先停止后再保存。") }
 
-            item { SectionTitle("面板消失自动停止") }
+            item { SectionTitle("面板检测") }
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("点击前检测面板", Modifier.weight(1f))
-                        Switch(checked = panelCheckEnabled, enabled = scheme.panelCheck != null,
-                            onCheckedChange = { panelCheckEnabled = it })
+                PanelDetectionSummary(draft, keepLegacyGuard, editable, onRemoveLegacyGuard = { keepLegacyGuard = false }) {
+                    scheme.panelCheck?.let { check ->
+                        detections = listOf(PanelDetection(UUID.randomUUID().toString(), check))
+                        keepLegacyGuard = false
                     }
-                    Text(
-                        if (scheme.panelCheck == null)
-                            "在目标面板打开时，点悬浮栏 ✎ → 面板检测，框选标题等固定特征并保存。需要 Android 11 或以上。"
-                        else
-                            "每次点击前检查选区。选区变化时先暂停，复查仍不匹配则停止并退出待命；截图失败也停止。检测会降低连点速度，最后截图与点击之间仍可能发生画面变化。重新框选请用悬浮栏 ✎ → 面板检测。",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
                 }
+            }
+            itemsIndexed(detectionDrafts, key = { _, detection -> "detection:${detection.id}" }) { index, detection ->
+                PanelDetectionSettings(draft, index + 1, detection,
+                    detectionDelays[detection.id] ?: "${detection.branch.delayBeforeMs}", editable,
+                    onBranchChange = { branch ->
+                        detections = detections.map { if (it.id == detection.id) it.copy(branch = branch) else it }
+                    },
+                    onDelayChange = { detectionDelays[detection.id] = it },
+                    onRemove = {
+                        detections = detections.filterNot { it.id == detection.id }
+                        detectionDelays.remove(detection.id)
+                    },
+                )
+                HorizontalDivider(Modifier.padding(top = 8.dp))
             }
 
             if (scheme.triggers.isNotEmpty()) {
@@ -223,12 +249,14 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
             }
 
             item { SectionTitle("步骤（执行前等待）") }
+
             if (scheme.steps.isEmpty()) {
                 item { Text("还没有步骤。请在目标应用上点悬浮栏的 ✎ 添加。", style = MaterialTheme.typography.bodyMedium) }
             }
             itemsIndexed(scheme.steps) { i, step ->
+                val suffix = if (step.id in branchTargets) " · 仅分支执行" else ""
                 NumberField(
-                    "第 ${i + 1} 步 (${step.x}, ${step.y}) 等待 ms",
+                    "第 ${i + 1} 步 (${step.x}, ${step.y})$suffix 等待 ms",
                     stepDelays[i],
                     stepDelayValues[i] == null,
                     "≥ $MIN_DELAY_MS",
@@ -280,9 +308,17 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun NumberField(label: String, value: String, isError: Boolean, hint: String, onChange: (String) -> Unit) {
+internal fun NumberField(
+    label: String,
+    value: String,
+    isError: Boolean,
+    hint: String,
+    enabled: Boolean = true,
+    onChange: (String) -> Unit,
+) {
     OutlinedTextField(
         value = value,
+        enabled = enabled,
         onValueChange = { v -> onChange(v.filter(Char::isDigit)) },
         label = { Text(label) },
         supportingText = if (isError) ({ Text(hint) }) else null,

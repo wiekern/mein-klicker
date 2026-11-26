@@ -14,6 +14,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.meinklicker.container
 import com.meinklicker.data.LoopConfig
+import com.meinklicker.data.PanelBranch
 import com.meinklicker.data.PanelCheck
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.Step
@@ -54,7 +55,9 @@ class PanelStopTest {
 
     @Test fun realGesturesStopWithoutClickingBackground() = runPanelTest(usePlatformGestures = true)
 
-    private fun runPanelTest(usePlatformGestures: Boolean) {
+    @Test fun realScreenshotsDriveBothBranches() = runPanelTest(usePlatformGestures = true, branchMode = true)
+
+    private fun runPanelTest(usePlatformGestures: Boolean, branchMode: Boolean = false) {
         assumeTrue(Build.VERSION.SDK_INT >= 34)
         val previous = shell("settings get secure enabled_accessibility_services")
         val previousEnabled = shell("settings get secure accessibility_enabled")
@@ -143,9 +146,11 @@ class PanelStopTest {
                         assertTrue("参考选区必须包含面板特征", PanelMatcher.hasDetail(check.colors))
                         // 参考截图使用独立实例，仍需遵守同一服务的系统截图频率限制。
                         delay(400)
+                        val panelTap = Step(location[0], location[1], 100, id = "present")
                         val scheme = Scheme(id, "panel test", screenWidth, screenHeight,
-                            steps = listOf(Step(location[0], location[1], 100)), loop = LoopConfig(0),
-                            panelCheck = check, updatedAt = 0)
+                            steps = if (branchMode) listOf(panelTap, panelTap.copy(x = location[0] / 3, id = "absent")) else listOf(panelTap),
+                            loop = LoopConfig(if (branchMode) 5 else 0), panelCheck = check, updatedAt = 0,
+                            panelBranch = if (branchMode) PanelBranch("present", "present", "absent") else null)
                         if (usePlatformGestures) {
                             context.container.repository.save(scheme)
                             context.container.selectScheme(id)
@@ -177,7 +182,7 @@ class PanelStopTest {
                     }
                 }
                 try {
-                    await("面板未被点击四次并停止") {
+                    await("面板未被点击四次并结束运行") {
                         hits.get() == 4 && controller!!.state.value == RunState.Idle
                     }
                 } catch (e: AssertionError) {
@@ -185,7 +190,7 @@ class PanelStopTest {
                 }
                 SystemClock.sleep(800)
                 assertEquals(4, hits.get())
-                assertEquals("面板关闭后误点了背景", 0, backgroundHits.get())
+                assertEquals("面板关闭后的背景分支点击数", if (branchMode) 1 else 0, backgroundHits.get())
             }
         } finally {
             runBlocking {

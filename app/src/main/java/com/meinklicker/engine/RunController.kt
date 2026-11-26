@@ -2,6 +2,7 @@ package com.meinklicker.engine
 
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.PanelCheck
+import com.meinklicker.data.panelBranchError
 import com.meinklicker.data.rotationError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +15,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+data class RoundWait(val startedAtUptimeMs: Long, val intervalMs: Long) {
+    fun remainingMs(uptimeMs: Long): Long = (intervalMs - (uptimeMs - startedAtUptimeMs)).coerceAtLeast(0)
+}
+
 sealed interface RunState {
     data object Idle : RunState
     data class Armed(val schemeId: String) : RunState
@@ -23,6 +28,8 @@ sealed interface RunState {
         val step: Int,
         val fromTrigger: Boolean,
         val panelCheck: PanelCheck? = null,
+        val checkingPanel: Boolean = false,
+        val roundWait: RoundWait? = null,
     ) : RunState
 }
 
@@ -36,6 +43,7 @@ class RunController(
     private val scope: CoroutineScope,
     private val advanceRotation: suspend (Scheme) -> Unit = {},
     private val onError: (String) -> Unit = {},
+    private val uptimeMillis: () -> Long = { System.nanoTime() / 1_000_000 },
     private val lookup: (id: String) -> Scheme?,
 ) {
     private val _state = MutableStateFlow<RunState>(RunState.Idle)
@@ -61,7 +69,7 @@ class RunController(
     fun run(schemeId: String): Boolean {
         if (_state.value != RunState.Idle || isCommitting || editing) return false
         val scheme = lookup(schemeId)?.takeIf { it.steps.isNotEmpty() } ?: return false
-        if (!validRotation(scheme)) return false
+        if (!validConfiguration(scheme)) return false
         start(scheme, fromTrigger = false) { executeSteps(scheme, false) }
         return true
     }
@@ -70,7 +78,7 @@ class RunController(
     fun arm(schemeId: String): Boolean {
         if (_state.value != RunState.Idle || isCommitting || editing) return false
         val scheme = lookup(schemeId) ?: return false
-        if (scheme.triggers.isEmpty() || !validRotation(scheme)) return false
+        if (scheme.triggers.isEmpty() || !validConfiguration(scheme)) return false
         _state.value = RunState.Armed(schemeId)
         return true
     }
@@ -96,7 +104,7 @@ class RunController(
         }
         // 待命中方案被编辑、触发区还没刷新：忽略这次点击，继续待命
         val trigger = scheme.triggers.getOrNull(index) ?: return false
-        if (!validRotation(scheme)) return false
+        if (!validConfiguration(scheme)) return false
         start(scheme, fromTrigger = true) {
             beforeReplay()
             engine.replayTrigger(x, y, trigger, scheme.pressMs, retryIf = retryIf, onReplayed = onReplayed,
@@ -149,12 +157,12 @@ class RunController(
             }
         }
         job = self
-        _state.value = RunState.Running(scheme.id, round = 0, step = 0, fromTrigger = fromTrigger, panelCheck = scheme.panelCheck)
+        _state.value = RunState.Running(scheme.id, round = 0, step = 0, fromTrigger = fromTrigger, panelCheck = guardFor(scheme))
         self.start()
     }
 
-    private fun validRotation(scheme: Scheme): Boolean {
-        val error = scheme.rotationError() ?: return true
+    private fun validConfiguration(scheme: Scheme): Boolean {
+        val error = scheme.rotationError() ?: scheme.panelBranchError() ?: return true
         onError(error)
         return false
     }
@@ -168,12 +176,17 @@ class RunController(
             } finally {
                 isCommitting = false
             }
-        }, onProgress = progress(scheme, fromTrigger))
+        }, onPanelCheck = { round ->
+            _state.value = RunState.Running(scheme.id, round, 0, fromTrigger, checkingPanel = true)
+        }, onRoundWait = { nextRound, intervalMs ->
+            val wait = RoundWait(uptimeMillis(), intervalMs)
+            _state.value = RunState.Running(scheme.id, nextRound - 1, 0, fromTrigger, roundWait = wait)
+        }, onProgress = { round, step ->
+            _state.value = RunState.Running(scheme.id, round, step, fromTrigger, panelCheck = guardFor(scheme))
+        })
     }
 
-    private fun progress(scheme: Scheme, fromTrigger: Boolean): (Int, Int) -> Unit = { round, step ->
-        _state.value = RunState.Running(scheme.id, round, step, fromTrigger, panelCheck = scheme.panelCheck)
-    }
+    private fun guardFor(scheme: Scheme): PanelCheck? = scheme.panelCheck.takeIf { scheme.panelBranch == null && scheme.panelDetections.isEmpty() }
 
     private fun cancelJob() {
         job?.cancel()

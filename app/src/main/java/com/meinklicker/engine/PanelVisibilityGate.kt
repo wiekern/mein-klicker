@@ -4,15 +4,22 @@ import kotlin.math.abs
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
-/** 由点击代理抛出，表示本轮必须结束且不能恢复待命。 */
+/** 结束当前运行（含后续轮次）并退出待命，向用户显示原因。 */
 class RunAborted(message: String) : Exception(message)
 
-/** 复查期间始终阻塞下一次点击；截图失败由调用方转换成 RunAborted。 */
+/** 连续两次不匹配才算消失；截图失败由调用方转换成 RunAborted。 */
 class PanelVisibilityGate(private val matches: suspend () -> Boolean) {
+    suspend fun isVisible(): Boolean {
+        currentCoroutineContext().ensureActive()
+        val firstMatch = matches()
+        currentCoroutineContext().ensureActive()
+        val visible = firstMatch || matches()
+        currentCoroutineContext().ensureActive()
+        return visible
+    }
+
     suspend fun awaitVisible() {
-        currentCoroutineContext().ensureActive()
-        if (!matches() && !matches()) throw RunAborted("检测区域已消失，已停止并退出待命")
-        currentCoroutineContext().ensureActive()
+        if (!isVisible()) throw RunAborted("检测区域已消失，已停止并退出待命")
     }
 }
 

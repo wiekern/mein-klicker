@@ -1,9 +1,11 @@
 package com.meinklicker
 
 import android.content.Context
+import android.os.SystemClock
 import com.meinklicker.data.SchemeRepository
 import com.meinklicker.engine.ClickEngine
 import com.meinklicker.engine.GestureDispatcher
+import com.meinklicker.engine.RunAborted
 import com.meinklicker.engine.RunController
 import com.meinklicker.service.ClickAccessibilityService
 import kotlinx.coroutines.MainScope
@@ -32,9 +34,15 @@ class AppContainer(context: Context) {
             _serviceFlow.value?.tapForRun(x, y, durationMs) ?: false
     }
 
-    val runController = RunController(ClickEngine(gestures), scope,
+    private val engine = ClickEngine(gestures) { check ->
+        val service = _serviceFlow.value ?: throw RunAborted("面板检测不可用，已停止")
+        service.detectPanel(check)
+    }
+
+    val runController = RunController(engine, scope,
         advanceRotation = repository::advanceRotation,
         onError = { _serviceFlow.value?.showRunError(it) },
+        uptimeMillis = SystemClock::uptimeMillis,
     ) { repository.get(it) }
 
     private val _selectedSchemeId = MutableStateFlow(prefs.getString(KEY_SELECTED, null))

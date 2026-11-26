@@ -17,6 +17,10 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.meinklicker.container
 import com.meinklicker.data.LoopConfig
+import com.meinklicker.data.PanelAction
+import com.meinklicker.data.PanelBranch
+import com.meinklicker.data.PanelCheck
+import com.meinklicker.data.PanelDetection
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.SchemeRepository
 import com.meinklicker.data.Step
@@ -79,6 +83,99 @@ class SchemeDetailScreenTest {
         // 返回列表后重新进入，界面也应显示保存后的值。
         compose.onNodeWithText(scheme.name).performScrollTo().performClick()
         compose.onNode(hasSetTextAction() and hasText("循环次数") and hasText("7")).assertExists()
+    }
+
+    @Test fun configuresAndReloadsPanelBranch() {
+        runBlocking {
+            repository.save(repository.get(scheme.id)!!.copy(
+                panelCheck = PanelCheck(10, 20, 30, 40, 1080, 2400, "example.app", List(768) { it }),
+            ))
+        }
+        val list = compose.onNode(hasScrollToIndexAction())
+        fun choose(label: String, option: String) {
+            list.performScrollToNode(hasText(label))
+            compose.onNodeWithText(label).performClick()
+            compose.onNodeWithText(option).performClick()
+        }
+        val useRegion = "用已有选区添加检测步骤"
+        list.performScrollToNode(hasText(useRegion))
+        compose.onNodeWithText(useRegion).performClick()
+        compose.onNodeWithText("保存").assertIsNotEnabled()
+        choose("插入位置 · 步骤末尾", "第 1 步后")
+        choose("检测到 A · 请选择", "第 1 步 (100, 200)")
+        choose("未检测到 B · 请选择", "第 2 步 (300, 400)")
+        replace("检测前等待 (ms)", "250")
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5_000) { repository.get(scheme.id)?.panelDetections?.isNotEmpty() == true }
+
+        val reloaded = SchemeRepository(File(compose.activity.filesDir, "schemes.json")).get(scheme.id)!!
+        val branch = reloaded.panelDetections.single().branch
+        assertEquals(null, branch.beforeStepId)
+        assertEquals(reloaded.steps[0].id, branch.afterStepId)
+        assertEquals(reloaded.steps[0].id, branch.presentStepId)
+        assertEquals(reloaded.steps[1].id, branch.absentStepId)
+        assertEquals(250L, branch.delayBeforeMs)
+        assertEquals(false, reloaded.panelCheck!!.enabled)
+    }
+
+    @Test fun savesStopAndContinueWithoutAssigningClickPoints() {
+        val reference = PanelCheck(10, 20, 30, 40, 1080, 2400, "example.app", List(768) { it })
+        runBlocking { repository.save(repository.get(scheme.id)!!.copy(panelCheck = reference)) }
+        val list = compose.onNode(hasScrollToIndexAction())
+        fun click(label: String) {
+            list.performScrollToNode(hasText(label))
+            compose.onNodeWithText(label).performClick()
+        }
+        click("用已有选区添加检测步骤")
+        click("检测到 A · 请选择")
+        compose.onNodeWithText("停止执行").performClick()
+        click("未检测到 B · 请选择")
+        compose.onNodeWithText("继续执行").performClick()
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5_000) { repository.get(scheme.id)?.panelDetections?.isNotEmpty() == true }
+
+        val reloaded = SchemeRepository(File(compose.activity.filesDir, "schemes.json")).get(scheme.id)!!
+        val branch = reloaded.panelDetections.single().branch
+        assertEquals(PanelAction.STOP, branch.presentAction)
+        assertEquals(PanelAction.CONTINUE, branch.absentAction)
+        assertTrue(branch.clickTargetIds().isEmpty())
+        assertEquals(false, reloaded.panelCheck!!.enabled)
+    }
+
+    @Test fun savesEndRoundActionFromPanelMenu() {
+        val reference = PanelCheck(10, 20, 30, 40, 1080, 2400, "example.app", List(768) { it })
+        val current = repository.get(scheme.id)!!
+        val branch = PanelBranch(afterStepId = current.steps[0].id,
+            presentAction = PanelAction.CONTINUE, absentAction = PanelAction.STOP)
+        runBlocking {
+            repository.save(current.copy(panelDetections = listOf(PanelDetection("end", reference, branch))))
+        }
+        val list = compose.onNode(hasScrollToIndexAction())
+        val label = "未检测到 B · 停止执行"
+        list.performScrollToNode(hasText(label))
+        compose.onNodeWithText(label).performClick()
+        compose.onNodeWithText("结束本轮").performClick()
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5_000) {
+            repository.get(scheme.id)?.panelDetections?.singleOrNull()?.branch?.absentAction == PanelAction.END_ROUND
+        }
+        val persisted = SchemeRepository(File(compose.activity.filesDir, "schemes.json")).get(scheme.id)!!
+        assertEquals(branch.copy(absentAction = PanelAction.END_ROUND), persisted.panelDetections.single().branch)
+    }
+
+    @Test fun removingOneDetectionPreservesTheOtherReferenceAndBranch() {
+        val reference = PanelCheck(10, 20, 30, 40, 1080, 2400, "example.app", List(768) { it })
+        val current = repository.get(scheme.id)!!
+        val branch = PanelBranch(current.steps[0].id, current.steps[0].id, current.steps[1].id)
+        val second = PanelDetection("second", reference.copy(colors = reference.colors.reversed()), branch)
+        runBlocking {
+            repository.save(current.copy(panelDetections = listOf(PanelDetection("first", reference, branch), second)))
+        }
+        val list = compose.onNode(hasScrollToIndexAction())
+        list.performScrollToNode(hasText("移除检测 1"))
+        compose.onNodeWithText("移除检测 1").performClick()
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5_000) { repository.get(scheme.id)?.panelDetections == listOf(second) }
     }
 
     @Test fun configuresCalibratesAndDisablesRotationWithoutLosingLoopSettings() {

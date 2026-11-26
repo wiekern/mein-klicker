@@ -10,6 +10,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -23,7 +24,11 @@ import com.meinklicker.data.LoopConfig
 import com.meinklicker.data.MAX_TRIGGERS
 import com.meinklicker.data.MIN_DELAY_MS
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.PanelBranch
 import com.meinklicker.data.PanelCheck
+import com.meinklicker.data.PanelDetection
+import com.meinklicker.data.branchClickStepIds
+import com.meinklicker.data.detectionSteps
 import com.meinklicker.data.Step
 import com.meinklicker.data.TriggerConfig
 import com.meinklicker.data.triggerLabel
@@ -98,7 +103,11 @@ class MarkerEditorOverlay(
     private val previewScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var previewing = false
     private var dismissed = false
-    private var panelCheck = original?.panelCheck
+    private var panelCheck = original?.panelCheck?.let { check ->
+        if (original.panelBranch != null) check.copy(enabled = false) else check
+    }
+    private val panelDetections = original?.detectionSteps().orEmpty().toMutableList()
+    private var editorMenu: PopupMenu? = null
     private var regionSelector: PanelRegionOverlay? = null
 
     private val triggers = mutableListOf<Marker>()
@@ -109,7 +118,8 @@ class MarkerEditorOverlay(
 
     private val clearButton = CaptionButton(context, "🗑", CLEAR_CAPTION, captionWidth) { onClearTapped() }
     private val triggerButton = CaptionButton(context, "👆", "触发点", captionWidth) { addTrigger() }
-    private val checkButton = CaptionButton(context, "▣", "面板检测", captionWidth) { selectPanelRegion() }
+    private val addButton = CaptionButton(context, "+", "加步骤", captionWidth) { onAddStepTapped() }
+    private val checkButton = CaptionButton(context, "▣", "面板检测", captionWidth) { onPanelDetectionTapped() }
     private var clearArmed = false
     private val disarmClear = Runnable { setClearArmed(false) }
 
@@ -140,7 +150,7 @@ class MarkerEditorOverlay(
         })
         val dividerHeight = overlays.dp(32)
         addView(verticalDivider(context, dividerHeight))
-        addView(CaptionButton(context, "+", "加步骤", captionWidth) { addStep() })
+        addView(addButton)
         addView(clearButton)
         addView(verticalDivider(context, dividerHeight))
         addView(triggerButton)
@@ -232,6 +242,7 @@ class MarkerEditorOverlay(
     fun dismiss() {
         dismissed = true
         previewScope.cancel()
+        editorMenu?.dismiss()
         regionSelector?.dismiss()
         regionSelector = null
         handler.removeCallbacks(disarmClear)
@@ -242,14 +253,28 @@ class MarkerEditorOverlay(
         lines.dismiss()
     }
 
-    private fun addStep() {
+    private fun onAddStepTapped() {
+        val selected = panelMarker?.takeUnless { it.isTrigger }
+        if (selected == null) {
+            addStep(steps.size)
+            return
+        }
+        val index = steps.indexOf(selected)
+        showEditorMenu(addButton, listOf(
+            "在第 ${index + 1} 步前添加步骤" to { addStep(index) },
+            "在第 ${index + 1} 步后添加步骤" to { addStep(index + 1) },
+        ))
+    }
+
+    private fun addStep(index: Int) {
         // 新标记从屏幕中心开始，逐个错开，避免叠在一起
         val offset = overlays.dp(24) * (steps.size % 6)
         val marker = Marker(screen.width / 2 + offset, screen.height / 2 + offset, DEFAULT_DELAY_MS, false)
-        steps += marker
+        steps.add(index, marker)
         overlays.add(marker.view, marker.params)
-        raiseBar()
         relabel()
+        raiseBar()
+        if (panelMarker?.isTrigger == false) closePanel()
     }
 
     private fun deleteMarker(marker: Marker) {
@@ -335,7 +360,7 @@ class MarkerEditorOverlay(
         }
         // 已有触发点时按钮为红色圆底（与待命按钮、触发区同色）
         triggerButton.background = if (triggers.isNotEmpty()) roundedBg(TRIGGER_COLOR, overlays.dp(8).toFloat()) else null
-        checkButton.background = if (panelCheck?.enabled == true) roundedBg(STEP_COLOR, overlays.dp(8).toFloat()) else null
+        checkButton.background = if (panelCheck?.enabled == true || panelDetections.isNotEmpty()) roundedBg(STEP_COLOR, overlays.dp(8).toFloat()) else null
         clearButton.isEnabled = steps.isNotEmpty()
         if (steps.isEmpty()) setClearArmed(false)
         if (panelMarker != null) refreshPanel()
@@ -343,7 +368,9 @@ class MarkerEditorOverlay(
     }
 
     private fun refreshLines() {
-        lines.update(triggers.map { Point(it.x, it.y) }, steps.map { Point(it.x, it.y) })
+        val branchTargets = panelDetections.branchClickStepIds()
+        val sequentialSteps = steps.filterNot { it.stepId in branchTargets }
+        lines.update(triggers.map { Point(it.x, it.y) }, sequentialSteps.map { Point(it.x, it.y) })
     }
 
     private fun save() {
@@ -360,6 +387,8 @@ class MarkerEditorOverlay(
             triggers = triggers,
             steps = steps,
             panelCheck = panelCheck,
+            panelBranch = null,
+            panelDetections = panelDetections.toList(),
             updatedAt = System.currentTimeMillis(),
         ) ?: Scheme(
             id = UUID.randomUUID().toString(),
@@ -370,6 +399,7 @@ class MarkerEditorOverlay(
             steps = steps,
             loop = LoopConfig(),
             panelCheck = panelCheck,
+            panelDetections = panelDetections.toList(),
             updatedAt = System.currentTimeMillis(),
         )
         finish(scheme.reconcileRotation())
@@ -398,6 +428,8 @@ class MarkerEditorOverlay(
             else marker.y - gap - panelParams.height).coerceIn(0, screen.height - panelParams.height)
         panel.scrollTo(0, 0)
         if (overlays.isShown(panel)) overlays.update(panel, panelParams) else overlays.add(panel, panelParams)
+        // 选中点位后仍可使用编辑栏插入步骤，即使参数面板占到了同一位置。
+        raiseBar()
     }
 
     private fun setTriggerRadius(radiusDp: Int) {
@@ -449,6 +481,7 @@ class MarkerEditorOverlay(
             val suffix = when {
                 memberIndex >= 0 -> " · 循环组第 ${memberIndex + 1} 项"
                 m.stepId == original?.rotationGroup?.commitStepId -> " · 进度确认"
+                m.stepId in panelDetections.branchClickStepIds() -> " · 仅分支执行"
                 else -> ""
             }
             "第 ${steps.indexOf(m) + 1} 步$suffix"
@@ -474,7 +507,49 @@ class MarkerEditorOverlay(
         overlays.remove(panel)
     }
 
-    private fun selectPanelRegion() {
+    private fun showEditorMenu(anchor: View, options: List<Pair<String, () -> Unit>>) {
+        editorMenu?.dismiss()
+        val popup = PopupMenu(context, anchor)
+        options.forEachIndexed { index, (label, _) -> popup.menu.add(0, index, index, label) }
+        popup.setOnMenuItemClickListener { item ->
+            options[item.itemId].second()
+            true
+        }
+        popup.setOnDismissListener { if (editorMenu === popup) editorMenu = null }
+        editorMenu = popup
+        popup.show()
+    }
+
+    private fun onPanelDetectionTapped() {
+        val options = mutableListOf<Pair<String, () -> Unit>>()
+        val selected = panelMarker?.takeUnless { it.isTrigger }
+        if (selected != null) {
+            val number = steps.indexOf(selected) + 1
+            options += "在第 ${number} 步前添加检测" to { addPanelDetection(PanelBranch(beforeStepId = selected.stepId)) }
+            options += "在第 ${number} 步后添加检测" to { addPanelDetection(PanelBranch(afterStepId = selected.stepId)) }
+        } else {
+            options += "在末尾添加检测步骤" to { addPanelDetection(PanelBranch()) }
+        }
+        panelDetections.forEachIndexed { index, detection ->
+            options += "重新框选检测 ${index + 1}" to {
+                selectPanelRegion { check ->
+                    panelDetections[index] = detection.copy(reference = check)
+                    notify("已更新检测 ${index + 1} 的选区，保存后生效")
+                }
+            }
+        }
+        showEditorMenu(checkButton, options)
+    }
+
+    private fun addPanelDetection(branch: PanelBranch) {
+        selectPanelRegion { check ->
+            panelDetections += PanelDetection(UUID.randomUUID().toString(), check, branch)
+            panelCheck = panelCheck?.copy(enabled = false)
+            notify("已添加检测 ${panelDetections.size}，保存后请到方案设置选择 A、B")
+        }
+    }
+
+    private fun selectPanelRegion(onCaptured: (PanelCheck) -> Unit) {
         if (previewing || dismissed) return
         val capture = onCapturePanel
         if (Build.VERSION.SDK_INT < 30 || capture == null) {
@@ -509,8 +584,7 @@ class MarkerEditorOverlay(
                 previewScope.launch {
                     try {
                         overlays.awaitTouchReleased()
-                        panelCheck = capture(region)
-                        notify("已设置面板检测，保存后生效；区域消失会停止并退出待命")
+                        onCaptured(capture(region))
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {

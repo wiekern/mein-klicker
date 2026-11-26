@@ -1,7 +1,12 @@
 package com.meinklicker.engine
 
 import com.meinklicker.data.DEFAULT_PRESS_MS
+import com.meinklicker.data.PanelAction
+import com.meinklicker.data.PanelCheck
+import com.meinklicker.data.branchClickStepIds
+import com.meinklicker.data.detectionSteps
 import com.meinklicker.data.Scheme
+import com.meinklicker.data.panelBranchError
 import com.meinklicker.data.TriggerConfig
 import com.meinklicker.data.rotationError
 import kotlinx.coroutines.currentCoroutineContext
@@ -12,43 +17,78 @@ import kotlinx.coroutines.ensureActive
  * 执行循环体和触发补发。不依赖 Android，停止靠取消协程：
  * 取消在下一个挂起点（delay 或等待手势回调）生效，所以能在 1 个步骤内停下。
  */
-class ClickEngine(private val gestures: GestureDispatcher) {
+class ClickEngine(
+    private val gestures: GestureDispatcher,
+    private val detectPanel: suspend (PanelCheck) -> Boolean = { throw RunAborted("面板检测不可用，已停止") },
+) {
 
     /** 按循环设置执行步骤列表；onProgress 的 round、step 都从 1 开始。 */
     suspend fun runLoop(
         scheme: Scheme,
         onRotationCommitted: suspend () -> Unit = {},
+        onPanelCheck: (round: Int) -> Unit = {},
+        onRoundWait: (nextRound: Int, intervalMs: Long) -> Unit = { _, _ -> },
         onProgress: (round: Int, step: Int) -> Unit = { _, _ -> },
     ) {
+        (scheme.rotationError() ?: scheme.panelBranchError())?.let { throw RunAborted(it) }
         if (scheme.steps.isEmpty()) return
         val group = scheme.rotationGroup
-        if (group != null) {
-            scheme.rotationError()?.let { throw RunAborted(it) }
-            scheme.steps.forEachIndexed { index, step ->
-                if (step.id !in group.stepIds || step.id == group.nextStepId) {
-                    currentCoroutineContext().ensureActive()
-                    onProgress(1, index + 1)
-                    delay(step.delayBeforeMs)
-                    if (!gestures.tap(step.x, step.y, scheme.pressMs)) {
-                        throw RunAborted("点击未完成，已停止；请检查循环组下次执行项")
-                    }
-                    if (step.id == group.commitStepId) onRotationCommitted()
-                }
+        val detections = scheme.detectionSteps()
+        val stepIndices = scheme.steps.withIndex().associate { (index, step) -> step.id to index }
+        val branchTargets = detections.branchClickStepIds()
+        // 相邻的「第 N 步后」和「第 N+1 步前」属于同一位置，按配置列表顺序执行。
+        val detectionsByPosition = detections.groupBy { detection ->
+            val branch = detection.branch
+            when {
+                branch.beforeStepId != null -> stepIndices.getValue(branch.beforeStepId)
+                branch.afterStepId != null -> stepIndices.getValue(branch.afterStepId) + 1
+                else -> scheme.steps.size
             }
-            return
         }
+
+        suspend fun tapStep(round: Int, index: Int) {
+            val step = scheme.steps[index]
+            currentCoroutineContext().ensureActive()
+            onProgress(round, index + 1)
+            delay(step.delayBeforeMs)
+            val completed = gestures.tap(step.x, step.y, scheme.pressMs)
+            if (group != null) {
+                if (!completed) throw RunAborted("点击未完成，已停止；请检查循环组下次执行项")
+                if (step.id == group.commitStepId) onRotationCommitted()
+            }
+        }
+
         val loop = scheme.loop
         var round = 1
-        while (loop.infinite || round <= loop.count) {
-            if (round > 1 && loop.intervalMs > 0) delay(loop.intervalMs)
-            scheme.steps.forEachIndexed { index, step ->
-                currentCoroutineContext().ensureActive()
-                onProgress(round, index + 1)
-                // 等待时长从上一次手势完成时开始计时
-                delay(step.delayBeforeMs)
-                // 手势被取消时继续下一步，不中断整个方案
-                gestures.tap(step.x, step.y, scheme.pressMs)
+        while (group != null || loop.infinite || round <= loop.count) {
+            if (round > 1 && loop.intervalMs > 0) {
+                onRoundWait(round, loop.intervalMs)
+                delay(loop.intervalMs)
             }
+            roundSteps@ for (index in 0..scheme.steps.size) {
+                for (detection in detectionsByPosition[index].orEmpty()) {
+                    currentCoroutineContext().ensureActive()
+                    val branch = detection.branch
+                    onPanelCheck(round)
+                    delay(branch.delayBeforeMs)
+                    val visible = detectPanel(checkNotNull(detection.reference))
+                    val action = if (visible) branch.presentAction else branch.absentAction
+                    when (action) {
+                        PanelAction.CLICK -> {
+                            val target = if (visible) branch.presentStepId else branch.absentStepId
+                            tapStep(round, stepIndices.getValue(target))
+                        }
+                        PanelAction.STOP -> throw RunAborted("面板检测命中「停止执行」，已结束本次运行")
+                        PanelAction.CONTINUE -> Unit
+                        PanelAction.END_ROUND -> break@roundSteps
+                    }
+                }
+                if (index == scheme.steps.size) break
+                val step = scheme.steps[index]
+                if (step.id in branchTargets) continue
+                if (group == null || step.id !in group.stepIds || step.id == group.nextStepId) tapStep(round, index)
+            }
+            if (group != null) break
             round++
         }
     }

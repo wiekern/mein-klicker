@@ -3,6 +3,9 @@ package com.meinklicker.overlay
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager.LayoutParams
@@ -54,7 +57,7 @@ class ControlBarOverlay(
         isSingleLine = true
         maxWidth = buttonSize + overlays.dp(8)
     }
-    /** 当前方案的循环设置或组进度。 */
+    /** 当前方案的循环设置、组进度或轮间隔倒计时。 */
     private val loopText = TextView(context).apply {
         setTextColor(0xFF80CBC4.toInt())
         textSize = 10f
@@ -94,8 +97,16 @@ class ControlBarOverlay(
     private var schemes: List<Scheme> = emptyList()
     private var collapsed = false
     private val picker = SchemePicker()
+    private val handler = Handler(Looper.getMainLooper())
+    private val roundWaitTick = Runnable { updateRoundWaitText() }
 
     init {
+        root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = refreshRoundWait()
+            override fun onViewDetachedFromWindow(v: View) {
+                handler.removeCallbacks(roundWaitTick)
+            }
+        })
         root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) actions.onBarBoundsChanged()
         }
@@ -135,14 +146,18 @@ class ControlBarOverlay(
             RunState.Idle -> "空闲"
             is RunState.Armed -> "待命"
             is RunState.Running -> when {
+                state.roundWait != null -> "等下轮"
                 state.round == 0 -> "运行"
+                state.checkingPanel -> "检测面板"
                 scheme?.rotationGroup != null -> "第${state.step}步"
                 scheme == null || scheme.loop.infinite -> "第${state.round}轮"
                 else -> "${state.round}/${scheme.loop.count}轮"
             }
         }
         loopText.text = scheme?.let { loopBadge(it) } ?: ""
-        loopText.visibility = if (collapsed || scheme == null) View.GONE else View.VISIBLE
+        val waiting = (state as? RunState.Running)?.roundWait != null
+        loopText.visibility = if (!collapsed && (scheme != null || waiting)) View.VISIBLE else View.GONE
+        refreshRoundWait()
         runButton.isEnabled = state == RunState.Idle && !scheme?.steps.isNullOrEmpty()
         val armed = state is RunState.Armed || (state is RunState.Running && state.fromTrigger)
         armButton.background = if (armed) circleBg(TRIGGER_COLOR) else null
@@ -151,6 +166,34 @@ class ControlBarOverlay(
         editButton.isEnabled = state == RunState.Idle
         newButton.isEnabled = state == RunState.Idle
         pickButton.isEnabled = state == RunState.Idle
+    }
+
+    private fun refreshRoundWait() {
+        handler.removeCallbacks(roundWaitTick)
+        updateRoundWaitText()
+    }
+
+    private fun updateRoundWaitText() {
+        if (collapsed || !root.isAttachedToWindow) return
+        val wait = (state as? RunState.Running)?.roundWait ?: return
+
+        val remainingMs = wait.remainingMs(SystemClock.uptimeMillis())
+        val seconds = remainingMs / 1_000 + if (remainingMs % 1_000 == 0L) 0 else 1
+        val hours = seconds / 3_600
+        val minutes = seconds / 60 % 60
+        val secondsText = (seconds % 60).toString().padStart(2, '0')
+        val label = when {
+            hours >= 100 -> "≥100h"
+            hours > 0 -> "$hours:${minutes.toString().padStart(2, '0')}:$secondsText"
+            else -> "$minutes:$secondsText"
+        }
+
+        if (loopText.text != label) loopText.text = label
+
+        if (remainingMs > 0) {
+            val nextTickMs = (remainingMs - 1) % 1_000 + 1
+            handler.postDelayed(roundWaitTick, nextTickMs)
+        }
     }
 
     /** 悬浮栏在屏幕上的矩形（绝对像素），用于运行前的重叠检查。 */
@@ -173,6 +216,7 @@ class ControlBarOverlay(
         secondary.forEach { it.visibility = if (value) View.GONE else View.VISIBLE }
         if (!value && loopText.text.isEmpty()) loopText.visibility = View.GONE
         collapseButton.text = if (value) "︾" else "︽"
+        refreshRoundWait()
     }
 
     private fun togglePicker() {
