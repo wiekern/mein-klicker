@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">@string/application_label</string>
     <string name="a11y_label">点序连点器 自動點擊</string>
+    <string name="editor_bar_collapse">收起編輯列</string>
+    <string name="editor_bar_expand">展開編輯列</string>
 </resources>

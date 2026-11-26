@@ -9,11 +9,15 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.annotation.RequiresApi
+import androidx.core.graphics.Insets
+import androidx.core.view.WindowInsetsCompat
 import com.meinklicker.R
 import com.meinklicker.data.DEFAULT_DELAY_MS
 import com.meinklicker.data.DEFAULT_PRESS_MS
@@ -97,7 +101,6 @@ class MarkerEditorOverlay(
 
     private val markerSize = overlays.dp(32)
     private val buttonSize = overlays.dp(40)
-    private val captionWidth = minOf(overlays.dp(52), (overlays.screen.width - overlays.dp(64)) / 6)
     private val screen = overlays.screen
     private val handler = Handler(Looper.getMainLooper())
     private val previewScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -114,22 +117,31 @@ class MarkerEditorOverlay(
     private val steps = mutableListOf<Marker>()
     private val lines = OrderLinesOverlay(context, overlays)
 
-    // ---- 编辑栏：⠿ │ + 加步骤  🗑 清空 │ 👆 触发点 │ ✓ 保存  ✕ 取消 ----
+    // ---- 编辑栏 ----
 
-    private val clearButton = CaptionButton(context, "🗑", CLEAR_CAPTION, captionWidth) { onClearTapped() }
-    private val triggerButton = CaptionButton(context, "👆", "触发点", captionWidth) { addTrigger() }
-    private val addButton = CaptionButton(context, "+", "加步骤", captionWidth) { onAddStepTapped() }
-    private val checkButton = CaptionButton(context, "▣", "面板检测", captionWidth) { onPanelDetectionTapped() }
+    private val clearButton = CaptionButton(context, "🗑", CLEAR_CAPTION) { onClearTapped() }
+    private val triggerButton = CaptionButton(context, "👆", "触发点") { addTrigger() }
+    private val addButton = CaptionButton(context, "+", "加步骤") { onAddStepTapped() }
+    private val checkButton = CaptionButton(context, "▣", "面板检测") { onPanelDetectionTapped() }
     private var clearArmed = false
     private val disarmClear = Runnable { setClearArmed(false) }
 
-    private val barParams = overlays.newParams(x = overlays.dp(8), y = screen.height * 3 / 4)
-    private val bar = LinearLayout(context).apply {
+    private val barParams = overlays.newParams().apply {
+        gravity = Gravity.getAbsoluteGravity(Gravity.TOP or Gravity.START, View.LAYOUT_DIRECTION_LTR)
+    }
+    private val barSafeBounds = Rect()
+    private var dockedBarX = 0
+    private var expandedBarPosition: Point? = null
+    private var barCollapsed = false
+
+    private val foldButton = BarButton(context, "‹", buttonSize, ::toggleBar).apply {
+        contentDescription = context.getString(R.string.editor_bar_collapse)
+        tooltipText = contentDescription
+        layoutParams = LinearLayout.LayoutParams(buttonSize, LinearLayout.LayoutParams.WRAP_CONTENT)
+    }
+    private val barActions = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        background = roundedBg(BAR_BG, overlays.dp(12).toFloat())
-        setPadding(overlays.dp(4), overlays.dp(2), overlays.dp(4), overlays.dp(2))
-        val barView = this
         addView(TextView(context).apply {
             text = "⠿"
             textSize = 20f
@@ -142,22 +154,116 @@ class MarkerEditorOverlay(
             setOnTouchListener(DragTouchListener(
                 onDragStart = { startX = barParams.x; startY = barParams.y },
                 onDrag = { dx, dy ->
-                    barParams.x = startX + dx
-                    barParams.y = startY + dy
-                    overlays.update(barView, barParams)
+                    expandedBarPosition = clampedBarPosition(startX + dx, startY + dy)
+                    placeBar()
                 },
             ))
         })
         val dividerHeight = overlays.dp(32)
+        fun addAction(button: CaptionButton) {
+            addView(button, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
         addView(verticalDivider(context, dividerHeight))
-        addView(addButton)
-        addView(clearButton)
+        addAction(addButton)
+        addAction(clearButton)
         addView(verticalDivider(context, dividerHeight))
-        addView(triggerButton)
-        addView(checkButton)
+        addAction(triggerButton)
+        addAction(checkButton)
         addView(verticalDivider(context, dividerHeight))
-        addView(CaptionButton(context, "✓", "保存", captionWidth) { save() })
-        addView(CaptionButton(context, "✕", "取消", captionWidth) { finish(null) })
+        addAction(CaptionButton(context, "✓", "保存") { save() })
+        addAction(CaptionButton(context, "✕", "取消") { finish(null) })
+    }
+    private val bar = LinearLayout(context).apply {
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        background = roundedBg(BAR_BG, overlays.dp(12).toFloat())
+        setPadding(overlays.dp(4), overlays.dp(2), overlays.dp(4), overlays.dp(2))
+        addView(foldButton)
+        addView(barActions, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            setOnApplyWindowInsetsListener { view, insets ->
+                view.post { if (overlays.isShown(view)) refreshBarBounds() }
+                insets
+            }
+        }
+        addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) placeBar()
+        }
+    }
+
+    private fun toggleBar() {
+        barCollapsed = !barCollapsed
+        foldButton.text = if (barCollapsed) "›" else "‹"
+        foldButton.contentDescription = context.getString(
+            if (barCollapsed) R.string.editor_bar_expand else R.string.editor_bar_collapse,
+        )
+        foldButton.tooltipText = foldButton.contentDescription
+        foldButton.minHeight = if (barCollapsed) overlays.dp(48) else buttonSize
+        foldButton.layoutParams = LinearLayout.LayoutParams(
+            if (barCollapsed) LinearLayout.LayoutParams.MATCH_PARENT else buttonSize,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        )
+        barActions.visibility = if (barCollapsed) View.GONE else View.VISIBLE
+        val horizontalPadding = if (barCollapsed) 0 else overlays.dp(4)
+        val verticalPadding = if (barCollapsed) 0 else overlays.dp(2)
+        bar.setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
+        refreshBarBounds()
+    }
+
+    internal fun onDisplayConfigurationChanged() {
+        if (overlays.isShown(bar)) refreshBarBounds()
+    }
+
+    private fun refreshBarBounds() {
+        val screen = overlays.screen
+        val insets = overlays.windowInsets(bar)
+        val safe = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && insets != null) {
+            Insets.toCompatInsets(insets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+            ))
+        } else if (insets != null) {
+            WindowInsetsCompat.toWindowInsetsCompat(insets, bar).getInsetsIgnoringVisibility(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+            )
+        } else Insets.NONE
+        val margin = overlays.dp(8)
+        barSafeBounds.set(safe.left + margin, safe.top + margin,
+            screen.width - safe.right - margin, screen.height - safe.bottom - margin)
+        val leftGestureInset = when {
+            insets == null -> 0
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemGestures()).left
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> legacyLeftGestureInset(insets)
+            else -> 0
+        }
+        dockedBarX = maxOf(barSafeBounds.left, leftGestureInset + margin)
+        placeBar()
+    }
+
+    @Suppress("DEPRECATION")
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun legacyLeftGestureInset(insets: WindowInsets) = insets.systemGestureInsets.left
+
+    private fun clampedBarPosition(x: Int, y: Int, width: Int = barParams.width): Point = Point(
+        x.coerceIn(barSafeBounds.left, maxOf(barSafeBounds.left, barSafeBounds.right - width)),
+        y.coerceIn(barSafeBounds.top, maxOf(barSafeBounds.top, barSafeBounds.bottom - bar.height)),
+    )
+
+    private fun placeBar() {
+        val desiredWidth = if (barCollapsed) overlays.dp(48) else overlays.dp(400)
+        val width = desiredWidth.coerceAtMost(barSafeBounds.width().coerceAtLeast(1))
+        val position = expandedBarPosition
+        val target = clampedBarPosition(
+            if (barCollapsed) dockedBarX else position?.x ?: barSafeBounds.left,
+            position?.y ?: barSafeBounds.top,
+            width,
+        )
+        if (barParams.x == target.x && barParams.y == target.y && barParams.width == width) return
+        barParams.x = target.x
+        barParams.y = target.y
+        barParams.width = width
+        overlays.update(bar, barParams)
     }
 
     // ---- 单个标记的参数面板 ----
@@ -236,6 +342,7 @@ class MarkerEditorOverlay(
         triggers.forEach { overlays.add(it.view, it.params) }
         steps.forEach { overlays.add(it.view, it.params) }
         relabel()
+        refreshBarBounds()
         overlays.add(bar, barParams)
     }
 

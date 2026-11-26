@@ -141,6 +141,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        editor?.onDisplayConfigurationChanged()
         if (::rotationPoints.isInitialized) refreshRotationPoints()
     }
 

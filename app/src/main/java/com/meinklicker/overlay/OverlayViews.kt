@@ -73,7 +73,6 @@ internal class CaptionButton(
     context: Context,
     icon: String,
     caption: String,
-    widthPx: Int,
     onClick: () -> Unit,
 ) : LinearLayout(context) {
     private val iconView = TextView(context).apply {
@@ -87,7 +86,7 @@ internal class CaptionButton(
         textSize = 10f
         setTextColor(0xFFB0BEC5.toInt())
         gravity = Gravity.CENTER
-        isSingleLine = true
+        maxLines = 2
     }
 
     var caption: CharSequence
@@ -99,7 +98,6 @@ internal class CaptionButton(
     init {
         orientation = VERTICAL
         gravity = Gravity.CENTER
-        minimumWidth = widthPx
         val pad = (4 * resources.displayMetrics.density).toInt()
         setPadding(pad, pad, pad, pad)
         addView(iconView)

@@ -2,16 +2,20 @@ package com.meinklicker.overlay
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.UiAutomation
+import android.graphics.Rect
 import android.os.Build
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.WindowInsets
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.FrameLayout
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
+import com.meinklicker.R
 import com.meinklicker.container
 import com.meinklicker.data.PanelCheck
 import com.meinklicker.data.Scheme
@@ -37,8 +41,8 @@ class MarkerEditorOverlayTest {
     private fun shell(command: String): String = automation.executeShellCommand(command)
         .let { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().use { reader -> reader.readText().trim() } }
 
-    private fun await(message: String = "等待界面或服务超时", condition: () -> Boolean) {
-        val deadline = SystemClock.uptimeMillis() + 10_000
+    private fun await(message: String = "等待界面或服务超时", timeoutMs: Long = 10_000, condition: () -> Boolean) {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (!condition() && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50)
         assertTrue(message + ": " + automation.windows.joinToString { "${it.type} ${it.root}" }, condition())
     }
@@ -63,6 +67,101 @@ class MarkerEditorOverlayTest {
             return (0 until node.childCount).firstNotNullOfOrNull { node.getChild(it)?.let(::find) }
         }
         return automation.windows.firstNotNullOfOrNull { it.root?.let(::find) }
+    }
+
+    @Test fun docksAtSafeTopAndFoldsWithoutBlockingTheUnderlyingAppOrLosingEdits() {
+        assumeTrue(Build.VERSION.SDK_INT >= 30)
+        val previous = shell("settings get secure enabled_accessibility_services")
+        val previousEnabled = shell("settings get secure accessibility_enabled")
+        val context = instrumentation.targetContext
+        val collapse = context.getString(R.string.editor_bar_collapse)
+        val expand = context.getString(R.string.editor_bar_expand)
+        val saved = AtomicReference<Scheme>()
+        val hits = AtomicInteger()
+        var editor: MarkerEditorOverlay? = null
+        try {
+            val component = "${context.packageName}/${ClickAccessibilityService::class.java.name}"
+            val services = (previous.takeUnless { it == "null" || it.isEmpty() }?.split(":").orEmpty() + component).distinct()
+            shell("settings put secure enabled_accessibility_services ${services.joinToString(":")}")
+            shell("settings put secure accessibility_enabled 1")
+            await("无障碍服务未连接", timeoutMs = 20_000) { context.container.serviceFlow.value != null }
+            automation.serviceInfo = automation.serviceInfo.apply {
+                flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            }
+
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val service = context.container.serviceFlow.value!!
+                val manager = OverlayManager(service)
+                val screen = manager.screen
+                val insets = service.getSystemService(WindowManager::class.java).maximumWindowMetrics.windowInsets
+                val safe = insets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+                )
+                val first = Step(screen.width / 4, screen.height / 2, id = "fold-existing")
+                val scheme = Scheme("fold-test", "fold", screen.width, screen.height,
+                    steps = listOf(first), updatedAt = 0)
+                fun open() {
+                    scenario.onActivity {
+                        editor = MarkerEditorOverlay(service, manager, scheme, "fold", {},
+                            onPreviewTap = { _, _, _ -> true }, onFinish = { saved.set(it) },
+                        ).also { it.show() }
+                    }
+                    await { described(collapse) != null }
+                }
+                fun bounds(node: AccessibilityNodeInfo) = Rect().also(node::getBoundsInScreen)
+                fun tapNode(node: AccessibilityNodeInfo) = bounds(node).let { tap(it.centerX(), it.centerY()) }
+                fun settleInput() = runBlocking {
+                    withContext(Dispatchers.Main) { manager.awaitTouchReleased() }
+                }
+                scenario.onActivity { activity ->
+                    activity.setContentView(FrameLayout(activity).apply {
+                        setOnClickListener { hits.incrementAndGet() }
+                    })
+                }
+
+                open()
+                val initial = bounds(described(collapse)!!)
+                assertTrue(initial.top >= safe.top)
+                assertTrue(initial.top <= safe.top + manager.dp(24))
+                settleInput()
+                tapNode(button("加步骤")!!)
+                settleInput()
+                await { button("⠿") != null }
+                val drag = bounds(button("⠿")!!)
+                shell("input swipe ${drag.centerX()} ${drag.centerY()} ${drag.centerX()} ${drag.centerY() + manager.dp(145)} 350")
+                await { described(collapse)?.let { bounds(it).top > initial.top + manager.dp(80) } == true }
+                val dragged = bounds(described(collapse)!!)
+                val uncovered = bounds(button("取消")!!)
+                val hitsBeforeFold = hits.get()
+                tapNode(described(collapse)!!)
+                val leftGestureInset = insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemGestures()).left
+                val expectedLeft = maxOf(safe.left, leftGestureInset) + manager.dp(8)
+                await("展开按钮未停靠到左侧安全区") {
+                    val handle = described(expand)?.let(::bounds)
+                    handle?.left == expectedLeft && handle.width() == manager.dp(48) && button("保存") == null
+                }
+                settleInput()
+                tap(uncovered.centerX(), uncovered.centerY())
+                await { hits.get() == hitsBeforeFold + 1 }
+
+                tapNode(described(expand)!!)
+                await { described(collapse)?.let { bounds(it) == dragged } == true && button("保存") != null }
+                settleInput()
+                tapNode(button("保存")!!)
+                await { saved.get() != null }
+                assertEquals(2, saved.get().steps.size)
+                assertEquals(first, saved.get().steps.first())
+
+                open()
+                await { described(collapse)?.let { bounds(it) == initial } == true }
+            }
+        } finally {
+            instrumentation.runOnMainSync { editor?.dismiss() }
+            if (previous == "null") shell("settings delete secure enabled_accessibility_services")
+            else shell("settings put secure enabled_accessibility_services '$previous'")
+            if (previousEnabled == "null") shell("settings delete secure accessibility_enabled")
+            else shell("settings put secure accessibility_enabled $previousEnabled")
+        }
     }
 
     @Test fun insertsClicksBeforeAndAfterSelectionAndCapturesTwoIndependentDetections() {

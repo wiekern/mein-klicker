@@ -7,6 +7,7 @@ import android.util.Size
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import com.meinklicker.util.ScreenInfo
@@ -30,6 +31,10 @@ class OverlayManager(private val context: Context) {
     val screen: Size get() = ScreenInfo.realSize(context)
 
     fun dp(value: Int): Int = (value * density).roundToInt()
+
+    internal fun windowInsets(view: View): WindowInsets? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) wm.maximumWindowMetrics.windowInsets
+        else view.rootWindowInsets
 
     fun newParams(
         x: Int = 0,
