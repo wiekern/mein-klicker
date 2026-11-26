@@ -132,12 +132,24 @@ class MarkerEditorOverlay(
     private val barSafeBounds = Rect()
     private var dockedBarX = 0
     private var expandedBarPosition: Point? = null
+    private var collapsedBarY: Int? = null
     private var barCollapsed = false
 
     private val foldButton = BarButton(context, "‹", buttonSize, ::toggleBar).apply {
         contentDescription = context.getString(R.string.editor_bar_collapse)
         tooltipText = contentDescription
         layoutParams = LinearLayout.LayoutParams(buttonSize, LinearLayout.LayoutParams.WRAP_CONTENT)
+        var startY = 0
+        val collapsedDrag = DragTouchListener(
+            requireLongPress = true,
+            onDragStart = { startY = barParams.y },
+            onDrag = { _, dy ->
+                collapsedBarY = clampedBarPosition(dockedBarX, startY + dy).y
+                placeBar()
+            },
+            onClick = { performClick() },
+        )
+        setOnTouchListener { view, event -> barCollapsed && collapsedDrag.onTouch(view, event) }
     }
     private val barActions = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -254,9 +266,10 @@ class MarkerEditorOverlay(
         val desiredWidth = if (barCollapsed) overlays.dp(48) else overlays.dp(400)
         val width = desiredWidth.coerceAtMost(barSafeBounds.width().coerceAtLeast(1))
         val position = expandedBarPosition
+        val expandedY = position?.y ?: barSafeBounds.top
         val target = clampedBarPosition(
             if (barCollapsed) dockedBarX else position?.x ?: barSafeBounds.left,
-            position?.y ?: barSafeBounds.top,
+            if (barCollapsed) collapsedBarY ?: expandedY else expandedY,
             width,
         )
         if (barParams.x == target.x && barParams.y == target.y && barParams.width == width) return

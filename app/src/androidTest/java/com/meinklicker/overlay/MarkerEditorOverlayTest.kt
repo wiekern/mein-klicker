@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityNodeInfo
@@ -47,14 +48,29 @@ class MarkerEditorOverlayTest {
         assertTrue(message + ": " + automation.windows.joinToString { "${it.type} ${it.root}" }, condition())
     }
 
-    private fun tap(x: Int, y: Int) {
-        val now = SystemClock.uptimeMillis()
-        listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEach { action ->
-            val event = MotionEvent.obtain(now, SystemClock.uptimeMillis(), action, x.toFloat(), y.toFloat(), 0)
-            event.source = InputDevice.SOURCE_TOUCHSCREEN
-            try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
-            if (action == MotionEvent.ACTION_DOWN) SystemClock.sleep(50)
+    private fun injectTouch(downTime: Long, action: Int, x: Int, y: Int) {
+        val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x.toFloat(), y.toFloat(), 0)
+        event.source = InputDevice.SOURCE_TOUCHSCREEN
+        try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+    }
+
+    private fun tap(x: Int, y: Int, holdMs: Long = 50) {
+        val downTime = SystemClock.uptimeMillis()
+        injectTouch(downTime, MotionEvent.ACTION_DOWN, x, y)
+        SystemClock.sleep(holdMs)
+        injectTouch(downTime, MotionEvent.ACTION_UP, x, y)
+    }
+
+    private fun drag(from: Rect, dx: Int, dy: Int, holdMs: Long) {
+        val downTime = SystemClock.uptimeMillis()
+        injectTouch(downTime, MotionEvent.ACTION_DOWN, from.centerX(), from.centerY())
+        SystemClock.sleep(holdMs)
+        for (step in 1..4) {
+            injectTouch(downTime, MotionEvent.ACTION_MOVE,
+                from.centerX() + dx * step / 4, from.centerY() + dy * step / 4)
+            SystemClock.sleep(30)
         }
+        injectTouch(downTime, MotionEvent.ACTION_UP, from.centerX() + dx, from.centerY() + dy)
     }
 
     private fun button(text: String): AccessibilityNodeInfo? = automation.windows.firstNotNullOfOrNull { window ->
@@ -144,6 +160,26 @@ class MarkerEditorOverlayTest {
                 tap(uncovered.centerX(), uncovered.centerY())
                 await { hits.get() == hitsBeforeFold + 1 }
 
+                val initialHandle = bounds(described(expand)!!)
+                val delta = manager.dp(100)
+                drag(initialHandle, 0, delta, holdMs = 35)
+                settleInput()
+                assertEquals(initialHandle, described(expand)?.let(::bounds))
+
+                val longPress = ViewConfiguration.getLongPressTimeout() + 80L
+                tap(initialHandle.centerX(), initialHandle.centerY(), holdMs = longPress)
+                settleInput()
+                assertEquals(initialHandle, described(expand)?.let(::bounds))
+                drag(initialHandle, manager.dp(24), delta, holdMs = longPress)
+                val movedHandle = Rect(initialHandle).apply { offset(0, delta) }
+                await("长按拖动后，展开按钮应沿左侧下移") { described(expand)?.let(::bounds) == movedHandle }
+
+                tapNode(described(expand)!!)
+                await { described(collapse)?.let { bounds(it) == dragged } == true && button("保存") != null }
+                settleInput()
+                tapNode(described(collapse)!!)
+                await("重新折叠应恢复上次调整的高度") { described(expand)?.let(::bounds) == movedHandle }
+                settleInput()
                 tapNode(described(expand)!!)
                 await { described(collapse)?.let { bounds(it) == dragged } == true && button("保存") != null }
                 settleInput()
