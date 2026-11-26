@@ -33,6 +33,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -68,6 +71,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     var interval by remember(scheme.id) { mutableStateOf("${scheme.loop.intervalMs}") }
     var press by remember(scheme.id) { mutableStateOf("${scheme.pressMs}") }
     var showPressTips by remember { mutableStateOf(false) }
+    var showStepWaitTips by remember(scheme.id) { mutableStateOf(false) }
     var keepLegacyGuard by remember(scheme.id, scheme.panelCheck, scheme.panelBranch, scheme.panelDetections) {
         mutableStateOf(scheme.panelCheck?.enabled == true && scheme.panelBranch == null && scheme.panelDetections.isEmpty())
     }
@@ -248,7 +252,17 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
                 }
             }
 
-            item { SectionTitle("步骤（执行前等待）") }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionTitle("步骤（执行前等待）")
+                    TextButton(
+                        onClick = { showStepWaitTips = true },
+                        modifier = Modifier.semantics { contentDescription = "执行前等待说明" },
+                    ) {
+                        Text("ⓘ", Modifier.clearAndSetSemantics { })
+                    }
+                }
+            }
 
             if (scheme.steps.isEmpty()) {
                 item { Text("还没有步骤。请在目标应用上点悬浮栏的 ✎ 添加。", style = MaterialTheme.typography.bodyMedium) }
@@ -274,6 +288,7 @@ fun SchemeDetailScreen(scheme: Scheme, onBack: () -> Unit) {
     }
 
     if (showPressTips) PressTipsDialog(onDismiss = { showPressTips = false })
+    if (showStepWaitTips) StepWaitTipsDialog(onDismiss = { showStepWaitTips = false })
     saveError?.let { message ->
         AlertDialog(
             onDismissRequest = { saveError = null },
@@ -296,6 +311,22 @@ private fun PressTipsDialog(onDismiss: () -> Unit) {
                     "• 不要超过约 $MAX_PRESS_MS ms，太长可能被识别为长按（系统长按约 400 ms）。\n" +
                     "• 按压时长会计入每一步的耗时：实际间隔 ≈ 等待时长 + 按压时长。\n" +
                     "• 所有步骤和触发点的补发都使用这个值。"
+            )
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },
+    )
+}
+
+@Composable
+private fun StepWaitTipsDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("执行前等待说明") },
+        text = {
+            Text(
+                "每一步的等待时长都发生在点击这一步之前。\n\n" +
+                    "如果第 1 步之后紧接着执行第 2 步，想在第 1 步点完后等 800 ms 再点第 2 步，" +
+                    "就把第 2 步的等待设为 800 ms。"
             )
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },

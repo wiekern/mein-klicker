@@ -63,6 +63,18 @@ class SchemeDetailScreenTest {
             .performTextReplacement(value)
     }
 
+    @Test fun explainsStepWaitWithAnExampleAndClosesTheDialog() {
+        val help = "执行前等待说明"
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasContentDescription(help))
+        compose.onNodeWithContentDescription(help).performClick()
+
+        compose.onNodeWithText(help).assertExists()
+        compose.onNodeWithText("把第 2 步的等待设为 800 ms", substring = true).assertExists()
+        compose.onNodeWithText("知道了").performClick()
+
+        compose.onNodeWithText(help).assertDoesNotExist()
+    }
+
     @Test fun savesLatestNumericInputsAndReloadsThemFromDisk() {
         replace("循环次数", "7")
         replace("轮间隔 (ms)", "1234")
