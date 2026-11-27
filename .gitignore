@@ -34,5 +34,5 @@ Thumbs.db
 .claude/settings.local.json
 
 # Private specs (separate private repo checked out here) and local agent notes
-specs/
+/specs/
 CLAUDE.local.md

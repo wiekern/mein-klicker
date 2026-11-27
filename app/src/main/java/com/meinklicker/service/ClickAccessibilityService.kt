@@ -16,7 +16,7 @@ import com.meinklicker.container
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.PanelCheck
 import com.meinklicker.data.rotationError
-import com.meinklicker.data.triggerLabel
+import com.meinklicker.data.detectionSteps
 import com.meinklicker.engine.GestureDispatcher
 import com.meinklicker.engine.RunState
 import com.meinklicker.engine.RunAborted
@@ -106,32 +106,32 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
                 .collect { refreshControlBarVisibility() }
         }
         scope.launch {
-            combine(runController.state, repository.schemes, container.selectedSchemeId) { state, list, id ->
-                Triple(state, list.find { it.id == id }, list)
-            }.collect { (state, scheme, list) ->
-                controlBar.render(state, scheme, list)
-                refreshRotationPoints()
-            }
+            combine(runController.state, repository.schemes, container.selectedSchemeId, ::Triple)
+                .collect { (state, schemes, selectedId) ->
+                    when (state) {
+                        is RunState.Armed -> {
+                            val scheme = schemes.find { it.id == state.schemeId }
+                            if (scheme == null || scheme.triggers.isEmpty() || !placeArmBar(scheme)) {
+                                runController.disarm()
+                                return@collect
+                            }
+                            triggerZone.show(scheme.triggers)
+                        }
+                        is RunState.Running -> if (state.fromTrigger) triggerZone.suspendTouch() else triggerZone.hide()
+                        RunState.Idle -> {
+                            triggerZone.hide()
+                            controlBar.restoreAfterArm()
+                        }
+                    }
+                    controlBar.render(state, schemes.find { it.id == selectedId }, schemes)
+                    refreshRotationPoints()
+                }
         }
         // 点击特效只在运行期间显示（全屏、不可触摸）
         scope.launch {
             combine(runController.state, container.tapEffectEnabled) { state, enabled ->
                 enabled && state is RunState.Running
             }.collect { if (it) tapEffect.show() else tapEffect.hide() }
-        }
-        // 触发区跟随状态：待命显示，触发运行中不拦截触摸，其余隐藏
-        scope.launch {
-            // 同时观察方案：待命中在主界面改了触发点半径也能立即刷新
-            combine(runController.state, repository.schemes) { state, _ -> state }.collect { state ->
-                when (state) {
-                    is RunState.Armed -> {
-                        val triggers = repository.get(state.schemeId)?.triggers.orEmpty()
-                        if (triggers.isNotEmpty()) triggerZone.show(triggers) else runController.disarm()
-                    }
-                    is RunState.Running -> if (state.fromTrigger) triggerZone.suspendTouch() else triggerZone.hide()
-                    RunState.Idle -> triggerZone.hide()
-                }
-            }
         }
     }
 
@@ -142,7 +142,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         editor?.onDisplayConfigurationChanged()
-        if (::rotationPoints.isInitialized) refreshRotationPoints()
+        if (::rotationPoints.isInitialized) onBarBoundsChanged()
     }
 
     /** 运行中的每一次点击（含触发补发）都先检测，不让后台监测与点击并行。 */
@@ -225,30 +225,29 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     override fun onRun() {
         val scheme = checkedSelectedScheme() ?: return
+        controlBar.bounds()?.let { bar ->
+            val hit = scheme.steps.indexOfFirst { bar.contains(it.x, it.y) }
+            if (hit >= 0) {
+                toast("第 ${hit + 1} 步落在悬浮栏上，请先把悬浮栏拖开")
+                return
+            }
+        }
         Log.i(TAG, "run ${scheme.name}: ${runController.run(scheme.id)}")
     }
 
     override fun onArm() {
+        if (runController.state.value != RunState.Idle) return
         val scheme = checkedSelectedScheme() ?: return
-        val triggers = scheme.triggers
-        if (triggers.isEmpty()) {
+        if (scheme.triggers.isEmpty()) {
             toast("该方案没有触发点，请先在编辑中添加")
             return
         }
-        controlBar.bounds()?.let { bar ->
-            val hit = triggers.indexOfFirst { t ->
-                val r = overlays.dp(t.radiusDp)
-                Rect.intersects(bar, Rect(t.x - r, t.y - r, t.x + r, t.y + r))
-            }
-            if (hit >= 0) {
-                val which = if (triggers.size == 1) "触发区" else "触发点 ${triggerLabel(hit, triggers.size)}"
-                toast("${which}与悬浮栏重叠，请先把悬浮栏拖开")
-                return
-            }
-        }
+        if (!placeArmBar(scheme)) return
         if (runController.arm(scheme.id)) {
             toast(if (scheme.rotationGroup != null) "已待命 · 点 G 选下次执行，点红圈触发"
                 else "已待命：点红圈里的目标开始，再点 👆 退出")
+        } else {
+            controlBar.restoreAfterArm()
         }
     }
 
@@ -257,7 +256,34 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
         toast("已退出待命")
     }
 
-    override fun onBarBoundsChanged() = refreshRotationPoints()
+    override fun onBarBoundsChanged() {
+        val schemeId = when (val state = runController.state.value) {
+            is RunState.Armed -> state.schemeId
+            is RunState.Running -> state.schemeId.takeIf { state.fromTrigger }
+            RunState.Idle -> null
+        }
+        val scheme = schemeId?.let(repository::get)
+        if (scheme != null && !placeArmBar(scheme)) runController.disarm()
+        refreshRotationPoints()
+    }
+
+    private fun placeArmBar(scheme: Scheme): Boolean {
+        if (!controlBar.isShown) return true
+        val obstacles = buildList {
+            scheme.triggers.forEach { trigger ->
+                val radius = overlays.dp(trigger.radiusDp)
+                add(Rect(trigger.x - radius, trigger.y - radius, trigger.x + radius, trigger.y + radius))
+            }
+            scheme.steps.forEach { add(Rect(it.x, it.y, it.x + 1, it.y + 1)) }
+            val detections = scheme.detectionSteps()
+            val references = if (detections.isEmpty()) listOfNotNull(scheme.panelCheck?.takeIf { it.enabled })
+                else detections.mapNotNull { it.reference }
+            references.map { Rect(it.left, it.top, it.right, it.bottom) }.filterNot { it.isEmpty }.let(::addAll)
+        }
+        if (controlBar.avoidArmObstacles(obstacles)) return true
+        toast("屏幕边缘没有可用位置，请调整触发区或检测范围")
+        return false
+    }
 
     private fun refreshRotationPoints() {
         val armed = runController.state.value as? RunState.Armed
@@ -292,20 +318,13 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
 
     override fun onStop() = runController.stop()
 
-    /** 运行前检查：方案有步骤、步骤不落在悬浮栏上；分辨率不一致只提示。 */
+    /** 两种启动方式共用方案检查；分辨率不一致只提示。 */
     private fun checkedSelectedScheme(): Scheme? {
         ensureCurrentDisplay()
         val scheme = container.selectedSchemeId.value?.let(repository::get)
         if (scheme == null || scheme.steps.isEmpty()) {
             toast("请先选择一个有步骤的方案")
             return null
-        }
-        controlBar.bounds()?.let { bar ->
-            val hit = scheme.steps.indexOfFirst { bar.contains(it.x, it.y) }
-            if (hit >= 0) {
-                toast("第 ${hit + 1} 步落在悬浮栏上，请先把悬浮栏拖开")
-                return null
-            }
         }
         val screen = overlays.screen
         if (scheme.screenWidth != screen.width || scheme.screenHeight != screen.height) {
@@ -391,7 +410,7 @@ class ClickAccessibilityService : AccessibilityService(), ControlBarOverlay.Acti
     private fun refreshControlBarVisibility() {
         val visible = container.controlBarEnabled.value && editor == null && !container.mainUiVisible.value
         if (visible) controlBar.show() else controlBar.hide()
-        refreshRotationPoints()
+        onBarBoundsChanged()
     }
 
     private fun ensureCurrentDisplay() {

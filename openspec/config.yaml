@@ -1,0 +1,18 @@
+schema: spec-driven
+
+context: |
+  MeinKlicker 是单 app 模块的 Android 应用，使用 Kotlin 与 Compose。
+  浮窗由无障碍服务管理，方案坐标使用屏幕绝对像素。运行状态机与 Android View 保持解耦。
+  openspec/specs/ 是已归档行为的规范，openspec/changes/ 记录进行中的变更。
+  以中文写文档正文，保留英文结构标题和 SHALL/MUST 等关键词。
+  旧私有规格可以作为背景参考。只在公开规范中记录可公开的项目行为。
+
+rules:
+  proposal:
+    - 说明用户遇到的问题、变更范围和受影响的能力。
+  specs:
+    - 按可长期维护的能力组织规范。每条需求至少有一个可验证的 WHEN/THEN 场景。
+  design:
+    - 说明关键取舍、状态变化和边界条件。涉及方案存储或兼容性时写清迁移策略。
+  tasks:
+    - 将实现与可验证的验收拆成清晰的任务。按实际结果勾选并记录验证范围。

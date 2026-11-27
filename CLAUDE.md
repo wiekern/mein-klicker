@@ -8,6 +8,10 @@ MeinKlicker is an Android auto-clicker: ordered taps with delays and loops, save
 
 Maintainers may keep private notes in `CLAUDE.local.md` (gitignored); read it if present.
 
+## Spec-driven development
+
+Follow [AGENTS.md](AGENTS.md) and the [OpenSpec workflow](openspec/README.md) for new behavior changes. Refer to the historical private specs when they provide context.
+
 ## Build
 
 Pinned versions: AGP 8.3.2, Gradle 8.4 (wrapper), Kotlin 1.9.23, Compose Compiler 1.5.11, compileSdk/targetSdk 34, minSdk 26. AGP 8.3 is the newest that Android Studio Iguana can sync — don't bump it without upgrading Android Studio. Needs JDK 17 (Android Studio's bundled JBR works) and `sdk.dir` in `local.properties`.
@@ -33,7 +37,7 @@ Key decisions that span multiple files:
 - **Gestures are strictly serial**: `GestureDispatcher.tap()` suspends until `onCompleted/onCancelled`, because a new `dispatchGesture` cancels an in-flight one.
 - `engine` must stay Android-free (only depends on the `GestureDispatcher` interface) so it is unit-testable with a fake dispatcher and `runTest` virtual time. `RunController` lives in `AppContainer` (process-wide `MainScope`) and looks schemes up by id at start, so edits apply to the next run. The service observes `RunController.state` to show/hide the trigger zone; the state machine never touches views.
 - **Trigger mode (intercept → replay)**: the trigger-zone window catches the tap; on `ACTION_UP` (using `ACTION_DOWN` coordinates) set the window `FLAG_NOT_TOUCHABLE`, wait two frames + 16 ms, then `tap()` at that point so the underlying app receives it. If the zone still receives the replayed touch (flag not yet applied by the input system), the replay is retried (max 2). Then wait `delayAfterMs` and run the step loop. The trigger tap is not part of the loop. After the loop finishes or is stopped, return to Armed.
-- Before running/arming, steps and the trigger zone must not overlap the control bar (refused with a message). Stopping is via the ■ button on the control bar (no key filtering).
+- Direct runs reject steps covered by the control bar. Manual-trigger standby can temporarily dock a compact control button at a free screen edge to avoid scheme regions. The ■ button stops execution.
 - User-facing messages go through `MessageOverlay`, not Toast — some ROMs suppress Toasts when notifications are disabled.
 - OEM ROMs (ColorOS / OriginOS) kill background services and may disable the accessibility service; the main screen shows live service status and links to battery / auto-start settings.
 - On OriginOS, `com.vivo.safecenter` rewrites `enabled_accessibility_services` from its own record and turns off the service of sideloaded (non-store) apps, e.g. when the accessibility settings pages are left. It is independent of the service config; the app cannot prevent it.

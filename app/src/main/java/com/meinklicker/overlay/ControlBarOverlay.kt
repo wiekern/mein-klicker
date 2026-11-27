@@ -3,15 +3,19 @@ package com.meinklicker.overlay
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Rect
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager.LayoutParams
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.graphics.Insets
+import androidx.core.view.WindowInsetsCompat
 import com.meinklicker.R
 import com.meinklicker.data.Scheme
 import com.meinklicker.data.rotationError
@@ -41,6 +45,18 @@ class ControlBarOverlay(
 
     private val params = overlays.newParams(x = overlays.dp(4), y = overlays.screen.height / 4)
     private val buttonSize = overlays.dp(40)
+    private val dockSize = overlays.dp(48)
+    private val dockParams = overlays.newParams(width = dockSize, height = dockSize).apply {
+        gravity = Gravity.TOP or Gravity.LEFT
+    }
+    private val dockButton = BarButton(context, "👆", dockSize) {
+        when (state) {
+            is RunState.Armed -> actions.onDisarm()
+            is RunState.Running -> actions.onStop()
+            RunState.Idle -> Unit
+        }
+    }
+    private var dockBounds: Rect? = null
 
     private val handle = TextView(context).apply {
         text = "⠿"
@@ -128,13 +144,16 @@ class ControlBarOverlay(
         ))
     }
 
-    val isShown: Boolean get() = overlays.isShown(root)
+    val isShown: Boolean get() = overlays.isShown(root) || overlays.isShown(dockButton)
 
-    fun show() = overlays.add(root, params)
+    fun show() {
+        if (dockBounds == null) overlays.add(root, params) else overlays.add(dockButton, dockParams)
+    }
 
     fun hide() {
         picker.dismiss()
         overlays.remove(root)
+        overlays.remove(dockButton)
     }
 
     fun render(state: RunState, scheme: Scheme?, schemes: List<Scheme>) {
@@ -163,6 +182,10 @@ class ControlBarOverlay(
         armButton.background = if (armed) circleBg(TRIGGER_COLOR) else null
         armButton.isEnabled = armed || (state == RunState.Idle && !scheme?.triggers.isNullOrEmpty())
         stopButton.isEnabled = state is RunState.Running
+        val running = state is RunState.Running
+        dockButton.text = if (running) "■" else "👆"
+        dockButton.contentDescription = if (running) "停止运行" else "退出待命"
+        dockButton.background = circleBg(if (running) BAR_BG else TRIGGER_COLOR)
         editButton.isEnabled = state == RunState.Idle
         newButton.isEnabled = state == RunState.Idle
         pickButton.isEnabled = state == RunState.Idle
@@ -199,7 +222,59 @@ class ControlBarOverlay(
     /** 悬浮栏在屏幕上的矩形（绝对像素），用于运行前的重叠检查。 */
     fun bounds(): Rect? {
         if (!isShown) return null
-        return Rect(params.x, params.y, params.x + root.width, params.y + root.height)
+        dockBounds?.let { return it }
+        val size = if (root.isLayoutRequested) {
+            // 手动收起/展开后可能还没完成下一次布局，按即将显示的尺寸避让。
+            val screen = overlays.screen
+            root.measure(View.MeasureSpec.makeMeasureSpec(screen.width, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(screen.height, View.MeasureSpec.AT_MOST))
+            root.measuredWidth to root.measuredHeight
+        } else root.width to root.height
+        return Rect(params.x, params.y, params.x + size.first, params.y + size.second)
+    }
+
+    /** 有遮挡时用固定大小的贴边按钮替代原悬浮栏，保留原栏的位置和展开状态。 */
+    internal fun avoidArmObstacles(obstacles: List<Rect>): Boolean {
+        val current = bounds() ?: return true
+        val overlaps = obstacles.any { Rect.intersects(current, it) }
+        val wasDocked = dockBounds != null
+        if (!overlaps && !wasDocked) return true
+        val safeArea = dockSafeArea()
+        if (!overlaps && safeArea.contains(current)) return true
+
+        val next = findEdgeDock(safeArea, current, dockSize, obstacles) ?: return false
+        if (!wasDocked) hide()
+        dockBounds = next
+        dockParams.x = next.left
+        dockParams.y = next.top
+        if (wasDocked) overlays.update(dockButton, dockParams) else show()
+        return true
+    }
+
+    internal fun restoreAfterArm() {
+        if (dockBounds == null) return
+        val wasShown = isShown
+        overlays.remove(dockButton)
+        dockBounds = null
+        if (wasShown) show()
+    }
+
+    private fun dockSafeArea(): Rect {
+        val screen = overlays.screen
+        val view = if (dockBounds == null) root else dockButton
+        val insets = overlays.windowInsets(view)
+        val safe = when {
+            insets == null -> Insets.NONE
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> Insets.toCompatInsets(insets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+            ))
+            else -> WindowInsetsCompat.toWindowInsetsCompat(insets, view).getInsetsIgnoringVisibility(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+            )
+        }
+        val margin = overlays.dp(4)
+        return Rect(safe.left + margin, safe.top + margin,
+            screen.width - safe.right - margin, screen.height - safe.bottom - margin)
     }
 
     private fun loopBadge(scheme: Scheme): String {
